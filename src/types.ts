@@ -5,6 +5,7 @@ export interface ClothingItem {
   price: number;
   original_price?: number;
   image: string;
+  video_url?: string;
   images?: string[];
   description: string;
   display_order?: number;

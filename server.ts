@@ -13,7 +13,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'vogue-and-value-secret-key';
-const ADMIN_PASSKEY = process.env.ADMIN_PASSKEY || 'liz-lifestyle-secret-2024';
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 async function startServer() {
@@ -62,6 +61,7 @@ async function startServer() {
         price REAL,
         original_price REAL,
         image TEXT,
+        video_url TEXT,
         description TEXT,
         display_order INTEGER DEFAULT 0
       );
@@ -127,6 +127,13 @@ async function startServer() {
       // Column already exists
     }
 
+    // Migration: Add video_url if it doesn't exist
+    try {
+      await db.exec('ALTER TABLE clothing_items ADD COLUMN video_url TEXT');
+    } catch (e) {
+      // Column already exists
+    }
+
     // Bootstrap Admin User (admin / admin123)
     const adminExists = await db.get('SELECT * FROM users WHERE username = ?', ['admin']);
     if (!adminExists) {
@@ -162,7 +169,7 @@ async function startServer() {
     }
 
     // API Routes
-    const ADMIN_EMAIL = 'lizlifestylebd@gmail.com';
+    const ADMIN_EMAIL = 'bd.lifestyleliz@gmail.com';
 
     app.post('/api/request-otp', async (req, res) => {
       const { email } = req.body;
@@ -179,6 +186,7 @@ async function startServer() {
       // Attempt to send via Resend if API key is present
       if (resend) {
         try {
+          console.log(`Attempting to send OTP to ${email}: ${otp}`);
           await resend.emails.send({
             from: 'Liz Lifestyle <onboarding@resend.dev>',
             to: email,
@@ -210,13 +218,29 @@ async function startServer() {
     });
 
     app.post('/api/login', async (req, res) => {
-      const { passkey } = req.body;
+      const { email, otp } = req.body;
       
-      if (passkey === ADMIN_PASSKEY) {
-        const token = jwt.sign({ id: 1, username: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
+      if (email !== ADMIN_EMAIL) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const otpRecord = await db.get('SELECT * FROM admin_otps WHERE email = ? AND otp = ?', [email, otp]);
+      
+      if (otpRecord) {
+        const now = new Date();
+        const expiresAt = new Date(otpRecord.expires_at);
+        
+        if (now > expiresAt) {
+          return res.status(401).json({ error: 'OTP has expired' });
+        }
+
+        // Cleanup OTP after successful login
+        await db.run('DELETE FROM admin_otps WHERE email = ?', [email]);
+
+        const token = jwt.sign({ id: 1, username: 'admin', email: ADMIN_EMAIL }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ token });
       } else {
-        res.status(401).json({ error: 'Invalid passkey' });
+        res.status(401).json({ error: 'Invalid OTP' });
       }
     });
 
@@ -234,7 +258,7 @@ async function startServer() {
 
     app.post('/api/items', authenticateToken, async (req, res) => {
       console.log('POST /api/items called');
-      const { name, category, price, original_price, description, display_order, inventory, image, images } = req.body;
+      const { name, category, price, original_price, description, display_order, inventory, image, images, video_url } = req.body;
       try {
         if (!name || isNaN(parseFloat(price))) {
           console.log('Validation failed: name or price missing/invalid', { name, price });
@@ -242,8 +266,8 @@ async function startServer() {
         }
 
         const result = await db.run(
-          'INSERT INTO clothing_items (name, category, price, original_price, description, display_order, image) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [name, category, parseFloat(price), original_price ? parseFloat(original_price) : null, description, parseInt(display_order) || 0, image || '']
+          'INSERT INTO clothing_items (name, category, price, original_price, description, display_order, image, video_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [name, category, parseFloat(price), original_price ? parseFloat(original_price) : null, description, parseInt(display_order) || 0, image || '', video_url || '']
         );
         const itemId = result.lastID;
         
@@ -274,25 +298,6 @@ async function startServer() {
       }
     });
 
-    // New route for individual image uploads to avoid 413 errors
-    app.post('/api/items/:id/images', authenticateToken, async (req, res) => {
-      const { id } = req.params;
-      const { image, isMain } = req.body;
-      try {
-        if (isMain) {
-          await db.run('UPDATE clothing_items SET image = ? WHERE id = ?', [image, id]);
-        }
-        
-        // Also add to product_images table
-        await db.run('INSERT INTO product_images (item_id, image_url) VALUES (?, ?)', [id, image]);
-        
-        res.json({ success: true });
-      } catch (err) {
-        console.error('Failed to upload image:', err);
-        res.status(500).json({ error: 'Failed to upload image' });
-      }
-    });
-
     app.delete('/api/items/:id/images', authenticateToken, async (req, res) => {
       const { id } = req.params;
       try {
@@ -316,7 +321,7 @@ async function startServer() {
     app.put('/api/items/:id', authenticateToken, async (req, res) => {
       const { id } = req.params;
       console.log(`PUT /api/items/${id} called`);
-      const { price, original_price, name, category, description, display_order, inventory, image, images } = req.body;
+      const { price, original_price, name, category, description, display_order, inventory, image, images, video_url } = req.body;
       try {
         // Handle partial updates (e.g., just display_order)
         const currentItem = await db.get('SELECT * FROM clothing_items WHERE id = ?', [id]);
@@ -332,6 +337,7 @@ async function startServer() {
         const updatedDescription = description !== undefined ? description : currentItem.description;
         const updatedDisplayOrder = display_order !== undefined ? parseInt(display_order) : currentItem.display_order;
         const updatedImage = image !== undefined ? image : currentItem.image;
+        const updatedVideoUrl = video_url !== undefined ? video_url : currentItem.video_url;
 
         if (!updatedName || isNaN(updatedPrice)) {
           console.log('Validation failed: updatedName or updatedPrice invalid', { updatedName, updatedPrice });
@@ -339,8 +345,8 @@ async function startServer() {
         }
 
         await db.run(
-          'UPDATE clothing_items SET price = ?, original_price = ?, name = ?, category = ?, description = ?, display_order = ?, image = ? WHERE id = ?',
-          [updatedPrice, updatedOriginalPrice, updatedName, updatedCategory, updatedDescription, updatedDisplayOrder, updatedImage, id]
+          'UPDATE clothing_items SET price = ?, original_price = ?, name = ?, category = ?, description = ?, display_order = ?, image = ?, video_url = ? WHERE id = ?',
+          [updatedPrice, updatedOriginalPrice, updatedName, updatedCategory, updatedDescription, updatedDisplayOrder, updatedImage, updatedVideoUrl, id]
         );
 
         // Update inventory if provided

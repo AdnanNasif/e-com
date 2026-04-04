@@ -40,10 +40,6 @@ import { Separator } from '@/components/ui/separator';
 import { ClothingItem, CartItem, Order } from './types';
 
 export default function App() {
-  const ADMIN_PORTAL_PATH = '/liz-portal-access';
-  const currentPath = window.location.pathname;
-  const isAtAdminPortal = currentPath === ADMIN_PORTAL_PATH;
-
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,8 +47,11 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [token, setToken] = useState<string | null>(localStorage.getItem('admin_token'));
-  const [loginForm, setLoginForm] = useState({ passkey: '' });
+  const [loginForm, setLoginForm] = useState({ email: '', otp: '' });
   const [loginError, setLoginError] = useState('');
+  const [showLogin, setShowLogin] = useState(false);
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
     name: '',
@@ -61,6 +60,7 @@ export default function App() {
     original_price: '',
     description: '',
     image: '',
+    video_url: '',
     display_order: '0',
     images: [''],
     inventory: [
@@ -170,8 +170,35 @@ export default function App() {
     return Array.from(new Set([...base, ...fromItems])).filter(c => c !== 'All');
   }, [items]);
 
+  const handleRequestOTP = async () => {
+    setLoginError('');
+    setOtpLoading(true);
+    try {
+      const res = await fetch('/api/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginForm.email }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOtpRequested(true);
+        setLoginError('OTP sent! Check server logs.');
+      } else {
+        setLoginError(data.error || 'Failed to request OTP');
+      }
+    } catch (err) {
+      setLoginError('Failed to request OTP');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
+    if (!otpRequested) {
+      handleRequestOTP();
+      return;
+    }
     setLoginError('');
     try {
       const res = await fetch('/api/login', {
@@ -185,9 +212,11 @@ export default function App() {
         localStorage.setItem('admin_token', token);
         setToken(token);
         setIsAdmin(true);
-        setLoginForm({ passkey: '' });
+        setShowLogin(false);
+        setOtpRequested(false);
+        setLoginForm({ email: '', otp: '' });
       } else {
-        setLoginError(data.error || 'Invalid passkey');
+        setLoginError(data.error || 'Invalid OTP');
       }
     } catch (err) {
       setLoginError('Login failed');
@@ -198,9 +227,6 @@ export default function App() {
     localStorage.removeItem('admin_token');
     setToken(null);
     setIsAdmin(false);
-    if (isAtAdminPortal) {
-      window.location.href = '/';
-    }
   };
 
   const addToCart = (item: ClothingItem, size: 'S' | 'M' | 'L' | 'XL') => {
@@ -343,6 +369,7 @@ export default function App() {
         display_order: newItemForm.display_order,
         inventory: newItemForm.inventory,
         image: newItemForm.image,
+        video_url: newItemForm.video_url,
         images: allImages
       };
 
@@ -388,8 +415,10 @@ export default function App() {
           name: '',
           category: '',
           price: '',
+          original_price: '',
           description: '',
           image: '',
+          video_url: '',
           display_order: '0',
           images: [''],
           inventory: [
@@ -458,119 +487,12 @@ export default function App() {
       original_price: item.original_price?.toString() || '',
       description: item.description,
       image: item.image,
+      video_url: item.video_url || '',
       display_order: item.display_order?.toString() || '0',
       images: item.images && item.images.length > 0 ? item.images : [item.image],
       inventory: item.inventory.map(inv => ({ size: inv.size, quantity: inv.quantity }))
     });
     setIsAddingItem(true);
-  };
-
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1000;
-          const MAX_HEIGHT = 1000;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return reject(new Error('Failed to get canvas context'));
-          
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          // Add Watermark
-          const watermark = new Image();
-          // Using a placeholder for the logo. User should replace this with their actual logo URL
-          // or we can use the website name as a text watermark if the image is not available.
-          watermark.src = 'https://i.imgur.com/ixctDvg.jpeg'; // Placeholder URL, user should update
-          watermark.crossOrigin = 'anonymous';
-          
-          watermark.onload = () => {
-            const watermarkWidth = width * 0.2; // 20% of image width
-            const watermarkHeight = (watermark.height / watermark.width) * watermarkWidth;
-            const x = width - watermarkWidth - 20;
-            const y = height - watermarkHeight - 20;
-            
-            ctx.globalAlpha = 0.5; // Transparency
-            ctx.drawImage(watermark, x, y, watermarkWidth, watermarkHeight);
-            ctx.globalAlpha = 1.0;
-            
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-            resolve(dataUrl);
-          };
-
-          watermark.onerror = () => {
-            // Fallback to text watermark if image fails
-            ctx.font = `${Math.max(20, width * 0.04)}px serif`;
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.textAlign = 'right';
-            ctx.fillText('Liz Lifestyle', width - 20, height - 20);
-            
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-            resolve(dataUrl);
-          };
-        };
-        img.onerror = (err) => reject(err);
-      };
-      reader.onerror = (err) => reject(err);
-    });
-  };
-
-  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>, index?: number) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressedBase64 = await compressImage(file);
-        if (index !== undefined) {
-          const newImages = [...newItemForm.images];
-          newImages[index] = compressedBase64;
-          setNewItemForm({ ...newItemForm, images: newImages });
-        } else {
-          setNewItemForm({ ...newItemForm, image: compressedBase64 });
-        }
-      } catch (err) {
-        console.error('Failed to compress image:', err);
-        setSaveStatus({ type: 'error', message: 'Failed to process image. Try a different file.' });
-      }
-    }
-  };
-
-  const handleBulkImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const fileArray = Array.from(files) as File[];
-      for (const file of fileArray) {
-        try {
-          const compressedBase64 = await compressImage(file);
-          setNewItemForm(prev => ({
-            ...prev,
-            images: [...prev.images.filter(img => img !== ''), compressedBase64]
-          }));
-        } catch (err) {
-          console.error('Failed to compress bulk image:', err);
-        }
-      }
-    }
   };
 
   if (loading) {
@@ -638,9 +560,13 @@ export default function App() {
                 </span>
               )}
             </Button>
-            {isAdmin && (
+            {isAdmin ? (
               <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout Admin">
                 <LogOut className="h-5 w-5" />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="icon" onClick={() => setShowLogin(true)} title="Admin Login">
+                <Lock className="h-5 w-5" />
               </Button>
             )}
           </div>
@@ -652,7 +578,7 @@ export default function App() {
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
         {isMenuOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="fixed inset-0 z-50">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -761,66 +687,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className={selectedProduct || isAtAdminPortal ? "bg-white min-h-screen" : "container mx-auto px-4 py-8"}>
-        {isAtAdminPortal ? (
-          <div className="max-w-md mx-auto py-20 px-4">
-            {!isAdmin ? (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white p-8 rounded-3xl shadow-2xl border border-neutral-100"
-              >
-                <div className="mb-8 text-center">
-                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50">
-                    <Lock className="h-8 w-8 text-[#064E3B]" />
-                  </div>
-                  <h2 className="text-3xl font-black tracking-tight text-neutral-900">Admin Portal</h2>
-                  <p className="text-sm text-neutral-500 mt-2">Enter your secret passkey to continue</p>
-                </div>
-                <form onSubmit={handleLogin} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400">Secret Passkey</label>
-                    <Input 
-                      type="password"
-                      value={loginForm.passkey}
-                      onChange={(e) => setLoginForm({ passkey: e.target.value })}
-                      placeholder="••••••••••••"
-                      className="h-14 rounded-xl border-2 focus:border-neutral-900 transition-all"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                  {loginError && (
-                    <p className="text-xs font-bold text-red-500 bg-red-50 p-3 rounded-lg border border-red-100">
-                      {loginError}
-                    </p>
-                  )}
-                  <Button 
-                    type="submit" 
-                    className="w-full h-14 bg-neutral-900 text-white font-black uppercase tracking-widest rounded-xl hover:bg-neutral-800 shadow-xl"
-                  >
-                    Authorize Access
-                  </Button>
-                </form>
-              </motion.div>
-            ) : (
-              <div className="text-center space-y-6">
-                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
-                  <CheckCircle2 className="h-10 w-10 text-green-600" />
-                </div>
-                <h2 className="text-3xl font-black">Access Granted</h2>
-                <p className="text-neutral-500">You are now authorized. Use the dashboard below.</p>
-                <Button 
-                  variant="outline" 
-                  className="rounded-xl"
-                  onClick={() => window.location.href = '/'}
-                >
-                  Return to Shop
-                </Button>
-              </div>
-            )}
-          </div>
-        ) : selectedProduct ? (
+      <main className={selectedProduct ? "bg-white min-h-screen" : "container mx-auto px-4 py-8"}>
+        {selectedProduct ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -859,23 +727,50 @@ export default function App() {
                     </div>
 
                     <AnimatePresence mode="wait">
-                      <motion.img
-                        key={activeImageIdx}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.4 }}
-                        src={selectedProduct.images?.[activeImageIdx] || selectedProduct.image}
-                        alt={selectedProduct.name}
-                        className="h-full w-full object-contain"
-                        referrerPolicy="no-referrer"
-                      />
+                      {activeImageIdx === -1 && selectedProduct.video_url ? (
+                        <motion.div
+                          key="video"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="h-full w-full bg-neutral-900 flex items-center justify-center relative"
+                        >
+                          {selectedProduct.video_url.includes('youtube.com') || selectedProduct.video_url.includes('youtu.be') ? (
+                            <iframe 
+                              src={selectedProduct.video_url.replace('watch?v=', 'embed/').split('&')[0]} 
+                              className="w-full h-full"
+                              allowFullScreen
+                            />
+                          ) : (
+                            <video 
+                              src={selectedProduct.video_url} 
+                              controls 
+                              className="max-h-full max-w-full"
+                              autoPlay
+                              muted
+                              loop
+                            />
+                          )}
+                        </motion.div>
+                      ) : (
+                        <motion.img
+                          key={activeImageIdx}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.4 }}
+                          src={selectedProduct.images?.[activeImageIdx] || selectedProduct.image}
+                          alt={selectedProduct.name}
+                          className="h-full w-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
                     </AnimatePresence>
                   </div>
                   
-                  {selectedProduct.images && selectedProduct.images.length > 1 && (
+                  {((selectedProduct.images && selectedProduct.images.length > 1) || selectedProduct.video_url) && (
                     <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 px-2">
-                      {selectedProduct.images.map((img, idx) => (
+                      {selectedProduct.images?.map((img, idx) => (
                         <button
                           key={idx}
                           onClick={() => setActiveImageIdx(idx)}
@@ -888,6 +783,18 @@ export default function App() {
                           <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                         </button>
                       ))}
+                      {selectedProduct.video_url && (
+                        <button
+                          onClick={() => setActiveImageIdx(-1)}
+                          className={`aspect-square rounded-lg overflow-hidden border-2 transition-all duration-300 bg-neutral-900 flex items-center justify-center ${
+                            activeImageIdx === -1 
+                              ? 'border-neutral-900 ring-4 ring-neutral-50' 
+                              : 'border-transparent opacity-40 hover:opacity-100'
+                          }`}
+                        >
+                          <Sparkles className="h-5 w-5 text-white" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1195,67 +1102,39 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Main Product Image</label>
-                                <div className="flex gap-2">
-                                  <Input 
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleImageUpload}
-                                    className="flex-1"
-                                  />
-                                  {newItemForm.image && (
-                                    <div className="h-10 w-10 rounded border overflow-hidden bg-neutral-50">
-                                      <img src={newItemForm.image} alt="Preview" className="h-full w-full object-contain" />
-                                    </div>
-                                  )}
-                                </div>
+                                <label className="text-xs font-bold uppercase text-neutral-500">Main Product Image (URL)</label>
                                 <Input 
+                                  required
                                   value={newItemForm.image}
                                   onChange={(e) => setNewItemForm({...newItemForm, image: e.target.value})}
-                                  placeholder="Or enter URL..."
-                                  className="mt-1"
+                                  placeholder="Enter image URL..."
                                 />
+                                {newItemForm.image && (
+                                  <div className="mt-2 h-20 w-20 rounded border overflow-hidden bg-neutral-50">
+                                    <img src={newItemForm.image} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase text-neutral-500">Product Video (URL)</label>
+                                <Input 
+                                  value={newItemForm.video_url}
+                                  onChange={(e) => setNewItemForm({...newItemForm, video_url: e.target.value})}
+                                  placeholder="Enter video URL (mp4, youtube, etc.)..."
+                                />
+                                {newItemForm.video_url && (
+                                  <div className="mt-2 aspect-video rounded border overflow-hidden bg-neutral-900 flex items-center justify-center">
+                                    <p className="text-[10px] text-white font-mono truncate px-2">{newItemForm.video_url}</p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <label className="text-xs font-bold uppercase text-neutral-500">Additional Images</label>
+                              <label className="text-xs font-bold uppercase text-neutral-500">Additional Images (URLs)</label>
                               <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-[10px] text-neutral-400 uppercase font-bold">Upload multiple or add URLs</p>
-                                  <Input 
-                                    type="file"
-                                    multiple
-                                    accept="image/*"
-                                    onChange={handleBulkImageUpload}
-                                    className="hidden"
-                                    id="bulk-upload"
-                                  />
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    type="button"
-                                    onClick={() => document.getElementById('bulk-upload')?.click()}
-                                  >
-                                    <Plus className="h-3 w-3 mr-2" /> Bulk Upload
-                                  </Button>
-                                </div>
-                                
                                 {newItemForm.images.map((img, idx) => (
                                   <div key={idx} className="flex gap-2 items-start">
                                     <div className="flex-1 space-y-2">
-                                      <div className="flex gap-2">
-                                        <Input 
-                                          type="file"
-                                          accept="image/*"
-                                          onChange={(e) => handleImageUpload(e, idx)}
-                                          className="flex-1 h-8 text-xs"
-                                        />
-                                        {img && (
-                                          <div className="h-8 w-8 flex-shrink-0 rounded border overflow-hidden bg-neutral-50">
-                                            <img src={img} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-                                          </div>
-                                        )}
-                                      </div>
                                       <Input 
                                         value={img}
                                         onChange={(e) => {
@@ -1263,9 +1142,14 @@ export default function App() {
                                           newImages[idx] = e.target.value;
                                           setNewItemForm({...newItemForm, images: newImages});
                                         }}
-                                        placeholder="Or enter URL..."
+                                        placeholder="Enter image URL..."
                                         className="h-8 text-xs"
                                       />
+                                      {img && (
+                                        <div className="h-12 w-12 flex-shrink-0 rounded border overflow-hidden bg-neutral-50">
+                                          <img src={img} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                                        </div>
+                                      )}
                                     </div>
                                     <Button 
                                       variant="ghost" 
@@ -1288,7 +1172,7 @@ export default function App() {
                                   className="w-full border-dashed"
                                   onClick={() => setNewItemForm({...newItemForm, images: [...newItemForm.images, '']})}
                                 >
-                                  <Plus className="h-3 w-3 mr-2" /> Add Image Slot
+                                  <Plus className="h-3 w-3 mr-2" /> Add Image URL Slot
                                 </Button>
                               </div>
                             </div>
@@ -1438,14 +1322,35 @@ export default function App() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {items.flatMap(item => (item.images || [item.image]).map((img, idx) => ({ img, itemName: item.name, itemId: item.id, idx }))).map(({ img, itemName, itemId, idx }, i) => (
+                    {items.flatMap(item => {
+                      const media = [];
+                      if (item.image) media.push({ url: item.image, type: 'image' as const, itemName: item.name, itemId: item.id, idx: 0 });
+                      if (item.video_url) media.push({ url: item.video_url, type: 'video' as const, itemName: item.name, itemId: item.id, idx: -1 });
+                      if (item.images) {
+                        item.images.forEach((img, idx) => {
+                          if (img !== item.image) {
+                            media.push({ url: img, type: 'image' as const, itemName: item.name, itemId: item.id, idx });
+                          }
+                        });
+                      }
+                      return media;
+                    }).map(({ url, type, itemName, itemId, idx }, i) => (
                       <motion.div 
-                        key={`${itemId}-${idx}-${i}`}
+                        key={`${itemId}-${type}-${idx}-${i}`}
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         className="group relative aspect-square rounded-lg overflow-hidden border bg-neutral-100"
                       >
-                        <img src={img} alt={itemName} className="h-full w-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
+                        {type === 'image' ? (
+                          <img src={url} alt={itemName} className="h-full w-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="h-full w-full bg-neutral-900 flex items-center justify-center">
+                            <Sparkles className="h-8 w-8 text-white/20" />
+                            <div className="absolute top-2 right-2">
+                              <Badge variant="secondary" className="text-[8px] uppercase">Video</Badge>
+                            </div>
+                          </div>
+                        )}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
                           <p className="text-[10px] text-white font-bold text-center line-clamp-2">{itemName}</p>
                           <div className="flex gap-1">
@@ -1455,8 +1360,8 @@ export default function App() {
                               className="h-7 w-7" 
                               title="Copy URL"
                               onClick={() => {
-                                navigator.clipboard.writeText(img);
-                                alert('Image URL copied to clipboard!');
+                                navigator.clipboard.writeText(url);
+                                alert(`${type === 'image' ? 'Image' : 'Video'} URL copied to clipboard!`);
                               }}
                             >
                               <Copy className="h-3 w-3" />
@@ -1470,7 +1375,7 @@ export default function App() {
                                 const item = items.find(it => it.id === itemId);
                                 if (item) {
                                   setSelectedProduct(item);
-                                  setActiveImageIdx(idx);
+                                  if (type === 'image') setActiveImageIdx(idx);
                                 }
                               }}
                             >
@@ -1613,6 +1518,90 @@ export default function App() {
                   Delete
                 </Button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLogin && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLogin(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-2xl bg-white p-8 shadow-2xl"
+            >
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
+                  <Lock className="h-6 w-6 text-neutral-900" />
+                </div>
+                <h2 className="text-2xl font-bold">Admin Login</h2>
+                <p className="text-sm text-neutral-500">
+                  {otpRequested ? 'Enter the OTP sent to your email' : 'Enter your admin email to receive an OTP'}
+                </p>
+              </div>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-neutral-500">Admin Identifier</label>
+                  <Input 
+                    type="password"
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                    placeholder="••••••••"
+                    required
+                    disabled={otpRequested || otpLoading}
+                  />
+                </div>
+                {otpRequested && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-neutral-500">One-Time Password (OTP)</label>
+                    <Input 
+                      type="text"
+                      value={loginForm.otp}
+                      onChange={(e) => setLoginForm({ ...loginForm, otp: e.target.value })}
+                      placeholder="123456"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                )}
+                {loginError && (
+                  <p className={`text-xs font-bold ${loginError.includes('sent') ? 'text-green-600' : 'text-red-500'}`}>
+                    {loginError}
+                  </p>
+                )}
+                <Button 
+                  type="submit" 
+                  disabled={otpLoading}
+                  className="w-full bg-neutral-900 text-white hover:bg-neutral-800"
+                >
+                  {otpLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : otpRequested ? (
+                    'Verify & Login'
+                  ) : (
+                    'Request OTP'
+                  )}
+                </Button>
+                {otpRequested && (
+                  <button
+                    type="button"
+                    onClick={() => setOtpRequested(false)}
+                    className="w-full text-center text-xs text-neutral-500 hover:underline"
+                  >
+                    Use Different Identifier
+                  </button>
+                )}
+              </form>
             </motion.div>
           </div>
         )}
