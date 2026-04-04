@@ -1,0 +1,88 @@
+import { ClothingItem } from './types';
+
+export const CLOTHING_ITEMS: ClothingItem[] = [
+  {
+    id: '1',
+    name: 'Classic White Tee',
+    category: 'Tops',
+    price: 25,
+    image: 'https://picsum.photos/seed/tee/400/500',
+    description: 'A essential white t-shirt made from 100% organic cotton.',
+    inventory: [
+      { size: 'S', quantity: 15 },
+      { size: 'M', quantity: 20 },
+      { size: 'L', quantity: 10 },
+      { size: 'XL', quantity: 5 },
+    ],
+  },
+  {
+    id: '2',
+    name: 'Slim Fit Denim Jeans',
+    category: 'Bottoms',
+    price: 65,
+    image: 'https://picsum.photos/seed/jeans/400/500',
+    description: 'Classic blue denim with a modern slim fit.',
+    inventory: [
+      { size: 'S', quantity: 8 },
+      { size: 'M', quantity: 12 },
+      { size: 'L', quantity: 15 },
+      { size: 'XL', quantity: 4 },
+    ],
+  },
+  {
+    id: '3',
+    name: 'Urban Bomber Jacket',
+    category: 'Outerwear',
+    price: 120,
+    image: 'https://picsum.photos/seed/bomber/400/500',
+    description: 'Versatile bomber jacket for all seasons.',
+    inventory: [
+      { size: 'S', quantity: 5 },
+      { size: 'M', quantity: 8 },
+      { size: 'L', quantity: 12 },
+      { size: 'XL', quantity: 3 },
+    ],
+  },
+  {
+    id: '4',
+    name: 'Canvas Backpack',
+    category: 'Accessories',
+    price: 45,
+    image: 'https://picsum.photos/seed/backpack/400/500',
+    description: 'Durable canvas backpack with multiple compartments.',
+    inventory: [
+      { size: 'S', quantity: 10 },
+      { size: 'M', quantity: 10 },
+      { size: 'L', quantity: 10 },
+      { size: 'XL', quantity: 10 },
+    ],
+  },
+  {
+    id: '5',
+    name: 'Oversized Hoodie',
+    category: 'Tops',
+    price: 55,
+    image: 'https://picsum.photos/seed/hoodie/400/500',
+    description: 'Cozy oversized hoodie in charcoal grey.',
+    inventory: [
+      { size: 'S', quantity: 20 },
+      { size: 'M', quantity: 25 },
+      { size: 'L', quantity: 15 },
+      { size: 'XL', quantity: 10 },
+    ],
+  },
+  {
+    id: '6',
+    name: 'Chino Shorts',
+    category: 'Bottoms',
+    price: 35,
+    image: 'https://picsum.photos/seed/shorts/400/500',
+    description: 'Comfortable chino shorts for warm weather.',
+    inventory: [
+      { size: 'S', quantity: 12 },
+      { size: 'M', quantity: 18 },
+      { size: 'L', quantity: 14 },
+      { size: 'XL', quantity: 6 },
+    ],
+  },
+];
