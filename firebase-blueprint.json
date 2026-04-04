@@ -2,66 +2,71 @@
   "entities": {
     "Product": {
       "title": "Product",
-      "description": "A clothing item in the shop",
+      "description": "A clothing item in the store",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
         "name": { "type": "string" },
-        "price": { "type": "number" },
         "category": { "type": "string" },
-        "image": { "type": "string" },
+        "price": { "type": "number" },
+        "original_price": { "type": "number" },
         "description": { "type": "string" },
-        "sizes": { "type": "array", "items": { "type": "string" } },
-        "colors": { "type": "array", "items": { "type": "string" } },
-        "isNew": { "type": "boolean" },
-        "isSale": { "type": "boolean" },
-        "salePrice": { "type": "number" },
-        "stock": { "type": "number" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "image": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "video_url": { "type": "string" },
+        "display_order": { "type": "integer" },
+        "inventory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "size": { "type": "string" },
+              "quantity": { "type": "integer" }
+            }
+          }
+        },
+        "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "price", "category", "image"]
+      "required": ["name", "price", "category"]
     },
     "Order": {
       "title": "Order",
       "description": "A customer order",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "customerName": { "type": "string" },
-        "customerEmail": { "type": "string" },
-        "customerPhone": { "type": "string" },
-        "customerAddress": { "type": "string" },
-        "items": { "type": "array", "items": { "type": "object" } },
-        "total": { "type": "number" },
+        "customer_name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "delivery_location": { "type": "string" },
+        "delivery_charge": { "type": "number" },
+        "total_amount": { "type": "number" },
         "status": { "type": "string", "enum": ["pending", "processing", "shipped", "delivered", "cancelled"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "integer" },
+              "size": { "type": "string" },
+              "image": { "type": "string" }
+            }
+          }
+        },
+        "created_at": { "type": "string", "format": "date-time" }
       },
-      "required": ["customerName", "customerPhone", "customerAddress", "items", "total", "status"]
-    },
-    "AdminOTP": {
-      "title": "Admin OTP",
-      "description": "One-time password for admin login",
-      "type": "object",
-      "properties": {
-        "email": { "type": "string" },
-        "otp": { "type": "string" },
-        "expiresAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["email", "otp", "expiresAt"]
+      "required": ["customer_name", "phone", "address", "items", "total_amount"]
     }
   },
   "firestore": {
     "products": {
       "schema": "Product",
-      "description": "Collection of products"
+      "description": "Collection of clothing items"
     },
     "orders": {
       "schema": "Order",
-      "description": "Collection of orders"
-    },
-    "admin_otps": {
-      "schema": "AdminOTP",
-      "description": "Temporary storage for admin OTPs"
+      "description": "Collection of customer orders"
     }
   }
 }

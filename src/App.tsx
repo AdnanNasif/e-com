@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, FormEvent, ChangeEvent } from 'react';
+import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingBag, 
@@ -28,7 +28,8 @@ import {
   Upload,
   Menu,
   Maximize2,
-  Sparkles
+  Sparkles,
+  LogIn
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +39,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { ClothingItem, CartItem, Order } from './types';
+import { 
+  db, 
+  auth, 
+  loginWithGoogle, 
+  logout, 
+  collection, 
+  doc, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp,
+  handleFirestoreError,
+  OperationType,
+  Timestamp
+} from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 
 export default function App() {
   const [items, setItems] = useState<ClothingItem[]>([]);
@@ -46,12 +67,9 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('admin_token'));
-  const [loginForm, setLoginForm] = useState({ email: '', otp: '' });
+  const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState('');
   const [showLogin, setShowLogin] = useState(false);
-  const [otpRequested, setOtpRequested] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
     name: '',
@@ -75,7 +93,7 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<ClothingItem | null>(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -86,148 +104,144 @@ export default function App() {
     delivery_location: 'inside' as 'inside' | 'outside'
   });
   const [orders, setOrders] = useState<Order[]>([]);
-  const [lastCheckedOrderId, setLastCheckedOrderId] = useState<number>(parseInt(localStorage.getItem('last_checked_order_id') || '0'));
+  const [lastCheckedOrderId, setLastCheckedOrderId] = useState<string>(localStorage.getItem('last_checked_order_id') || '');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+
+  const ADMIN_EMAIL = 'joseph.nasif@gmail.com';
 
   const CATEGORY_HIERARCHY: Record<string, string[]> = {
     '3-piece': ['ZAMZAM', 'COCO']
   };
 
-  const fetchItems = async () => {
-    try {
-      const res = await fetch('/api/items');
-      const data = await res.json();
-      setItems(data);
-    } catch (err) {
-      console.error('Failed to fetch items:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const allCategories = useMemo(() => {
+    const cats = new Set(items.map(i => i.category));
+    return ['All', ...Array.from(cats)];
+  }, [items]);
 
-  const fetchOrders = async () => {
-    if (!token) return;
-    try {
-      const res = await fetch('/api/orders', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setOrders(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch orders:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchItems();
-    if (token) {
-      setIsAdmin(true);
-      fetchOrders();
-    }
-  }, [token]);
-
-  // Poll for new orders if admin
-  useEffect(() => {
-    if (!isAdmin) return;
-    const interval = setInterval(fetchOrders, 30000); // Every 30 seconds
-    return () => clearInterval(interval);
-  }, [isAdmin]);
-
-  const newOrdersCount = useMemo(() => {
-    return orders.filter(o => o.id > lastCheckedOrderId).length;
-  }, [orders, lastCheckedOrderId]);
+  const mainCategories = useMemo(() => {
+    const cats = new Set(items.map(i => i.category));
+    // Filter out sub-categories from main list
+    const subCats = Object.values(CATEGORY_HIERARCHY).flat() as string[];
+    return ['All', ...Array.from(cats).filter((c: string) => !subCats.includes(c))];
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.category.toLowerCase().includes(searchQuery.toLowerCase());
+                          item.description.toLowerCase().includes(searchQuery.toLowerCase());
       
-      const isParent = CATEGORY_HIERARCHY[selectedCategory];
-      const matchesCategory = selectedCategory === 'All' || 
-                              item.category === selectedCategory || 
-                              (isParent && isParent.includes(item.category));
+      if (selectedCategory === 'All') return matchesSearch;
       
-      return matchesSearch && matchesCategory;
+      // If selected category has sub-categories, include them
+      const subCategories = CATEGORY_HIERARCHY[selectedCategory] || [];
+      const isInCategoryOrSub = item.category === selectedCategory || subCategories.includes(item.category);
+      
+      return matchesSearch && isInCategoryOrSub;
     });
   }, [items, searchQuery, selectedCategory]);
 
-  const mainCategories = useMemo(() => {
-    const base = ['All', 'Tops', 'Bottoms', 'Outerwear', 'Accessories', '3-piece'];
-    const fromItems = items.map(i => i.category);
-    const allUnique = Array.from(new Set([...base, ...fromItems]));
-    
-    // Filter out sub-categories from the main list
-    const subCategories = Object.values(CATEGORY_HIERARCHY).flat();
-    return allUnique.filter(cat => !subCategories.includes(cat));
-  }, [items]);
+  const newOrdersCount = useMemo(() => {
+    return orders.filter(o => o.status === 'pending').length;
+  }, [orders]);
 
-  const allCategories = useMemo(() => {
-    const base = ['Tops', 'Bottoms', 'Outerwear', 'Accessories', '3-piece', 'ZAMZAM', 'COCO'];
-    const fromItems = items.map(i => i.category);
-    return Array.from(new Set([...base, ...fromItems])).filter(c => c !== 'All');
-  }, [items]);
-
-  const handleRequestOTP = async () => {
-    setLoginError('');
-    setOtpLoading(true);
-    try {
-      const res = await fetch('/api/request-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginForm.email }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setOtpRequested(true);
-        setLoginError('OTP sent! Check server logs.');
-      } else {
-        setLoginError(data.error || 'Failed to request OTP');
-      }
-    } catch (err) {
-      setLoginError('Failed to request OTP');
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleLogin = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!otpRequested) {
-      handleRequestOTP();
-      return;
-    }
-    setLoginError('');
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const { token } = data;
-        localStorage.setItem('admin_token', token);
-        setToken(token);
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser && currentUser.email === ADMIN_EMAIL) {
         setIsAdmin(true);
-        setShowLogin(false);
-        setOtpRequested(false);
-        setLoginForm({ email: '', otp: '' });
       } else {
-        setLoginError(data.error || 'Invalid OTP');
+        setIsAdmin(false);
       }
-    } catch (err) {
-      setLoginError('Login failed');
+    });
+
+    const productsQuery = query(collection(db, 'products'), orderBy('display_order', 'asc'));
+    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+      const productsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ClothingItem[];
+      setItems(productsData);
+      setLoading(false);
+      
+      // Seed if empty
+      if (productsData.length === 0) {
+        seedInitialData();
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products');
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeProducts();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const ordersQuery = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          created_at: data.created_at?.toDate?.()?.toISOString() || new Date().toISOString()
+        };
+      }) as unknown as Order[];
+      setOrders(ordersData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
+    });
+
+    return () => unsubscribeOrders();
+  }, [isAdmin]);
+
+  const seedInitialData = async () => {
+    const initialItems = [
+      { name: 'Classic White Tee', category: 'Tops', price: 25, image: 'https://picsum.photos/seed/tee/400/500', description: 'A essential white t-shirt made from 100% organic cotton.', display_order: 1 },
+      { name: 'Slim Fit Denim Jeans', category: 'Bottoms', price: 65, image: 'https://picsum.photos/seed/jeans/400/500', description: 'Classic blue denim with a modern slim fit.', display_order: 2 },
+      { name: 'Urban Bomber Jacket', category: 'Outerwear', price: 120, image: 'https://picsum.photos/seed/bomber/400/500', description: 'Versatile bomber jacket for all seasons.', display_order: 3 },
+      { name: 'Canvas Backpack', category: 'Accessories', price: 45, image: 'https://picsum.photos/seed/backpack/400/500', description: 'Durable canvas backpack with multiple compartments.', display_order: 4 },
+      { name: 'Oversized Hoodie', category: 'Tops', price: 55, image: 'https://picsum.photos/seed/hoodie/400/500', description: 'Cozy oversized hoodie in charcoal grey.', display_order: 5 },
+      { name: 'Chino Shorts', category: 'Bottoms', price: 35, image: 'https://picsum.photos/seed/shorts/400/500', description: 'Comfortable chino shorts for warm weather.', display_order: 6 },
+    ];
+
+    for (const item of initialItems) {
+      const sizes = ['S', 'M', 'L', 'XL'];
+      const inventory = sizes.map(size => ({ size, quantity: 10 }));
+      
+      await addDoc(collection(db, 'products'), {
+        ...item,
+        inventory,
+        images: [item.image],
+        created_at: serverTimestamp()
+      });
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('admin_token');
-    setToken(null);
+  const handleGoogleLogin = async () => {
+    setLoginError('');
+    try {
+      const result = await loginWithGoogle();
+      if (result.user.email !== ADMIN_EMAIL) {
+        setLoginError('Access denied: Unauthorized email');
+        await logout();
+      } else {
+        setShowLogin(false);
+      }
+    } catch (err) {
+      setLoginError('Login failed. Please try again.');
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
     setIsAdmin(false);
   };
+
 
   const addToCart = (item: ClothingItem, size: 'S' | 'M' | 'L' | 'XL') => {
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
@@ -248,36 +262,27 @@ export default function App() {
   };
 
   const updateInventory = async (itemId: string, size: string, newQuantity: number) => {
-    if (!token) return;
+    if (!isAdmin) return;
     try {
-      const res = await fetch(`/api/inventory/${itemId}/${size}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ quantity: newQuantity }),
-      });
-      if (res.ok) fetchItems();
+      const productRef = doc(db, 'products', itemId);
+      const item = items.find(i => i.id === itemId);
+      if (!item) return;
+
+      const newInventory = item.inventory.map(inv => 
+        inv.size === size ? { ...inv, quantity: newQuantity } : inv
+      );
+
+      await updateDoc(productRef, { inventory: newInventory });
     } catch (err) {
       console.error('Failed to update inventory:', err);
     }
   };
 
   const updatePrice = async (itemId: string, newPrice: number) => {
-    if (!token) return;
-    const item = items.find(i => i.id === itemId);
-    if (!item) return;
+    if (!isAdmin) return;
     try {
-      const res = await fetch(`/api/items/${itemId}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ...item, price: newPrice }),
-      });
-      if (res.ok) fetchItems();
+      const productRef = doc(db, 'products', itemId);
+      await updateDoc(productRef, { price: newPrice });
     } catch (err) {
       console.error('Failed to update price:', err);
     }
@@ -291,29 +296,51 @@ export default function App() {
     e.preventDefault();
     setIsSubmittingOrder(true);
     try {
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...checkoutForm,
-          delivery_charge: deliveryCharge,
-          total_amount: finalTotal,
-          items: cart
-        }),
-      });
-      if (res.ok) {
-        setOrderSuccess(true);
-        setCart([]);
-        setIsCheckoutOpen(false);
-        setIsCartOpen(false);
-        // Reset form
-        setCheckoutForm({
-          customer_name: '',
-          phone: '',
-          address: '',
-          delivery_location: 'inside'
-        });
+      const orderData = {
+        customer_name: checkoutForm.customer_name,
+        phone: checkoutForm.phone,
+        address: checkoutForm.address,
+        delivery_location: checkoutForm.delivery_location,
+        delivery_charge: deliveryCharge,
+        total_amount: finalTotal,
+        items: cart.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.cartQuantity,
+          size: item.selectedSize,
+          image: item.image
+        })),
+        status: 'pending',
+        created_at: serverTimestamp()
+      };
+
+      await addDoc(collection(db, 'orders'), orderData);
+      
+      // Update inventory for each item
+      for (const item of cart) {
+        const productRef = doc(db, 'products', item.id);
+        const product = items.find(i => i.id === item.id);
+        if (product) {
+          const newInventory = product.inventory.map(inv => 
+            inv.size === item.selectedSize 
+              ? { ...inv, quantity: Math.max(0, inv.quantity - item.cartQuantity) } 
+              : inv
+          );
+          await updateDoc(productRef, { inventory: newInventory });
+        }
       }
+
+      setOrderSuccess(true);
+      setCart([]);
+      setIsCheckoutOpen(false);
+      setIsCartOpen(false);
+      setCheckoutForm({
+        customer_name: '',
+        phone: '',
+        address: '',
+        delivery_location: 'inside'
+      });
     } catch (err) {
       console.error('Checkout failed:', err);
     } finally {
@@ -321,19 +348,11 @@ export default function App() {
     }
   };
 
-  const updateOrderStatus = async (orderId: number, status: string) => {
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    if (!isAdmin) return;
     try {
-      const res = await fetch(`/api/orders/${orderId}/status`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status }),
-      });
-      if (res.ok) {
-        fetchOrders();
-      }
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status });
     } catch (err) {
       console.error('Failed to update status:', err);
     }
@@ -341,17 +360,13 @@ export default function App() {
 
   const handleAddItem = async (e: FormEvent) => {
     e.preventDefault();
-    if (!token) return;
+    if (!isAdmin) return;
     
     if (!newItemForm.name || !newItemForm.price || isNaN(parseFloat(newItemForm.price))) {
       setSaveStatus({ type: 'error', message: 'Please provide a valid name and price.' });
       return;
     }
 
-    const method = editingItemId !== null ? 'PUT' : 'POST';
-    const url = editingItemId !== null ? `/api/items/${editingItemId}` : '/api/items';
-    
-    // Ensure main image is included in the images array
     const filteredImages = newItemForm.images.filter(img => img && img.trim() !== '');
     const allImages = [newItemForm.image, ...filteredImages].filter((img, idx, self) => 
       img && img.trim() !== '' && self.indexOf(img) === idx
@@ -363,50 +378,28 @@ export default function App() {
       const payload = {
         name: newItemForm.name,
         category: newItemForm.category,
-        price: newItemForm.price,
-        original_price: newItemForm.original_price,
+        price: parseFloat(newItemForm.price),
+        original_price: newItemForm.original_price ? parseFloat(newItemForm.original_price) : null,
         description: newItemForm.description,
-        display_order: newItemForm.display_order,
+        display_order: parseInt(newItemForm.display_order) || 0,
         inventory: newItemForm.inventory,
         image: newItemForm.image,
         video_url: newItemForm.video_url,
-        images: allImages
+        images: allImages,
+        updated_at: serverTimestamp()
       };
 
-      const res = await fetch(url, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        let errorMessage = 'Failed to save product';
-        try {
-          const errData = await res.json();
-          errorMessage = errData.error || errorMessage;
-        } catch (e) {
-          const text = await res.text().catch(() => '');
-          errorMessage = text || `Error ${res.status}: ${res.statusText}`;
-        }
-        
-        if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem('token');
-          setIsAdmin(false);
-          throw new Error('Your session has expired. Please log in again.');
-        }
-        
-        if (res.status === 413) {
-          throw new Error('The images are too large. Please use image URLs or smaller files.');
-        }
-        
-        throw new Error(errorMessage);
+      if (editingItemId) {
+        await updateDoc(doc(db, 'products', editingItemId), payload);
+      } else {
+        await addDoc(collection(db, 'products'), {
+          ...payload,
+          created_at: serverTimestamp()
+        });
       }
 
       setSaveStatus({ type: 'success', message: editingItemId ? 'Product updated successfully!' : 'Product added successfully!' });
-      fetchItems();
+      
       setTimeout(() => {
         setIsAddingItem(false);
         setEditingItemId(null);
@@ -432,29 +425,22 @@ export default function App() {
 
     } catch (err) {
       console.error('Failed to save item:', err);
-      setSaveStatus({ type: 'error', message: err instanceof Error ? err.message : 'Network error. Please try again.' });
+      setSaveStatus({ type: 'error', message: 'Failed to save product. Please check your connection.' });
     }
   };
 
   const handleDeleteItem = async (id: string) => {
-    if (!token) return;
+    if (!isAdmin) return;
     try {
-      const res = await fetch(`/api/items/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        fetchItems();
-        setConfirmDeleteId(null);
-      }
+      await deleteDoc(doc(db, 'products', id));
+      setConfirmDeleteId(null);
     } catch (err) {
       console.error('Failed to delete item:', err);
     }
   };
 
   const moveProduct = async (item: ClothingItem, position: 'top' | 'bottom') => {
-    if (!token) return;
-    const sortedItems = [...items].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    if (!isAdmin) return;
     let newOrder = 0;
     
     if (position === 'top') {
@@ -464,19 +450,12 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`/api/items/${item.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ display_order: newOrder }),
-      });
-      if (res.ok) fetchItems();
+      await updateDoc(doc(db, 'products', item.id), { display_order: newOrder });
     } catch (err) {
       console.error('Failed to move product:', err);
     }
   };
+
 
   const startEditing = (item: ClothingItem) => {
     setEditingItemId(item.id);
@@ -1251,15 +1230,8 @@ export default function App() {
                                   value={item.original_price || ''} 
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    const updatedItem = { ...item, original_price: val ? parseFloat(val) : null };
-                                    fetch(`/api/items/${item.id}`, {
-                                      method: 'PUT',
-                                      headers: { 
-                                        'Content-Type': 'application/json',
-                                        'Authorization': `Bearer ${token}`
-                                      },
-                                      body: JSON.stringify(updatedItem),
-                                    }).then(res => { if (res.ok) fetchItems(); });
+                                    const updatedPrice = val ? parseFloat(val) : null;
+                                    updateDoc(doc(db, 'products', item.id), { original_price: updatedPrice });
                                   }}
                                   className="h-7 w-20 text-xs text-neutral-400"
                                   placeholder="None"
@@ -1546,62 +1518,26 @@ export default function App() {
                 </div>
                 <h2 className="text-2xl font-bold">Admin Login</h2>
                 <p className="text-sm text-neutral-500">
-                  {otpRequested ? 'Enter the OTP sent to your email' : 'Enter your admin email to receive an OTP'}
+                  Access restricted to authorized personnel only.
                 </p>
               </div>
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-neutral-500">Admin Identifier</label>
-                  <Input 
-                    type="password"
-                    value={loginForm.email}
-                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                    placeholder="••••••••"
-                    required
-                    disabled={otpRequested || otpLoading}
-                  />
-                </div>
-                {otpRequested && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-neutral-500">One-Time Password (OTP)</label>
-                    <Input 
-                      type="text"
-                      value={loginForm.otp}
-                      onChange={(e) => setLoginForm({ ...loginForm, otp: e.target.value })}
-                      placeholder="123456"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                )}
+              <div className="space-y-4">
                 {loginError && (
-                  <p className={`text-xs font-bold ${loginError.includes('sent') ? 'text-green-600' : 'text-red-500'}`}>
+                  <p className="text-xs font-bold text-red-500 text-center">
                     {loginError}
                   </p>
                 )}
                 <Button 
-                  type="submit" 
-                  disabled={otpLoading}
-                  className="w-full bg-neutral-900 text-white hover:bg-neutral-800"
+                  onClick={handleGoogleLogin}
+                  className="w-full bg-neutral-900 text-white hover:bg-neutral-800 flex items-center justify-center gap-2 h-12 rounded-xl font-bold"
                 >
-                  {otpLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : otpRequested ? (
-                    'Verify & Login'
-                  ) : (
-                    'Request OTP'
-                  )}
+                  <LogIn className="h-5 w-5" />
+                  Sign in with Google
                 </Button>
-                {otpRequested && (
-                  <button
-                    type="button"
-                    onClick={() => setOtpRequested(false)}
-                    className="w-full text-center text-xs text-neutral-500 hover:underline"
-                  >
-                    Use Different Identifier
-                  </button>
-                )}
-              </form>
+                <p className="text-center text-[10px] text-neutral-400">
+                  Authorized email: {ADMIN_EMAIL}
+                </p>
+              </div>
             </motion.div>
           </div>
         )}

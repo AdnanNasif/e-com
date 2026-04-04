@@ -21,10 +21,8 @@ export interface CartItem extends ClothingItem {
 }
 
 export interface OrderItem {
-  id?: number;
-  order_id?: number;
-  product_id: number;
-  product_name: string;
+  id: string;
+  name: string;
   size: string;
   quantity: number;
   price: number;
@@ -32,7 +30,7 @@ export interface OrderItem {
 }
 
 export interface Order {
-  id: number;
+  id: string;
   customer_name: string;
   phone: string;
   address: string;
