@@ -1,5 +1,8 @@
 import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import { 
   ShoppingBag, 
   Search, 
@@ -29,7 +32,9 @@ import {
   Menu,
   Maximize2,
   Sparkles,
-  LogIn
+  LogIn,
+  Download,
+  FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -86,6 +91,8 @@ export default function App() {
       { size: 'M', quantity: 0 },
       { size: 'L', quantity: 0 },
       { size: 'XL', quantity: 0 },
+      { size: 'Unstitched', quantity: 0 },
+      { size: 'Freesize', quantity: 0 },
     ]
   });
   const [isAddingItem, setIsAddingItem] = useState(false);
@@ -107,23 +114,33 @@ export default function App() {
   const [lastCheckedOrderId, setLastCheckedOrderId] = useState<string>(localStorage.getItem('last_checked_order_id') || '');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [lastOrder, setLastOrder] = useState<any>(null);
 
-  const ADMIN_EMAIL = 'joseph.nasif@gmail.com';
+  const ADMIN_EMAIL = 'lizlifestylebd@gmail.com';
 
   const CATEGORY_HIERARCHY: Record<string, string[]> = {
-    '3-piece': ['ZAMZAM', 'COCO']
+    'Womans Clothing': ['ZAMZAM', 'COCO']
   };
 
   const allCategories = useMemo(() => {
     const cats = new Set(items.map(i => i.category));
-    return ['All', ...Array.from(cats)];
+    const subCats = Object.values(CATEGORY_HIERARCHY).flat() as string[];
+    subCats.forEach(sc => cats.add(sc));
+    return ['All', ...Array.from(cats)].filter(c => c !== '');
   }, [items]);
 
   const mainCategories = useMemo(() => {
     const cats = new Set(items.map(i => i.category));
     // Filter out sub-categories from main list
     const subCats = Object.values(CATEGORY_HIERARCHY).flat() as string[];
-    return ['All', ...Array.from(cats).filter((c: string) => !subCats.includes(c))];
+    const hierarchyParents = Object.keys(CATEGORY_HIERARCHY);
+    
+    const filteredCats = Array.from(cats).filter((c: string) => !subCats.includes(c));
+    
+    // Ensure hierarchy parents are included even if no items have that exact category
+    const finalCats = new Set(['All', ...filteredCats, ...hierarchyParents]);
+    
+    return Array.from(finalCats);
   }, [items]);
 
   const filteredItems = useMemo(() => {
@@ -210,7 +227,7 @@ export default function App() {
     ];
 
     for (const item of initialItems) {
-      const sizes = ['S', 'M', 'L', 'XL'];
+      const sizes = ['S', 'M', 'L', 'XL', 'Unstitched', 'Freesize'];
       const inventory = sizes.map(size => ({ size, quantity: 10 }));
       
       await addDoc(collection(db, 'products'), {
@@ -250,7 +267,7 @@ export default function App() {
   };
 
 
-  const addToCart = (item: ClothingItem, size: 'S' | 'M' | 'L' | 'XL') => {
+  const addToCart = (item: ClothingItem, size: string) => {
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
     const inventoryItem = item.inventory.find(i => i.size === size);
     if (!inventoryItem || inventoryItem.quantity <= 0) return;
@@ -264,7 +281,7 @@ export default function App() {
         ));
       }
     } else {
-      setCart([...cart, { ...item, selectedSize: size, cartQuantity: 1 }]);
+      setCart([...cart, { ...item, selectedSize: size as any, cartQuantity: 1 }]);
     }
   };
 
@@ -322,7 +339,9 @@ export default function App() {
         created_at: serverTimestamp()
       };
 
-      await addDoc(collection(db, 'orders'), orderData);
+      const docRef = await addDoc(collection(db, 'orders'), orderData);
+      const fullOrder = { ...orderData, id: docRef.id };
+      setLastOrder(fullOrder);
       
       // Update inventory for each item
       for (const item of cart) {
@@ -426,6 +445,8 @@ export default function App() {
             { size: 'M', quantity: 0 },
             { size: 'L', quantity: 0 },
             { size: 'XL', quantity: 0 },
+            { size: 'Unstitched', quantity: 0 },
+            { size: 'Freesize', quantity: 0 },
           ]
         });
       }, 1500);
@@ -479,6 +500,114 @@ export default function App() {
       inventory: item.inventory.map(inv => ({ size: inv.size, quantity: inv.quantity }))
     });
     setIsAddingItem(true);
+  };
+
+  const exportInventoryExcel = () => {
+    const data = items.map(item => {
+      const row: any = {
+        'Product Name': item.name,
+        'Category': item.category,
+        'Price (৳)': item.price,
+        'Original Price (৳)': item.original_price || 'N/A',
+      };
+      item.inventory.forEach(inv => {
+        row[`Size ${inv.size}`] = inv.quantity;
+      });
+      row['Total Stock'] = item.inventory.reduce((sum, inv) => sum + inv.quantity, 0);
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Inventory');
+    XLSX.writeFile(workbook, `Inventory_Export_${new Date().toLocaleDateString()}.xlsx`);
+  };
+
+  const exportOrdersExcel = () => {
+    const data = orders.map(order => ({
+      'Order ID': order.id,
+      'Customer Name': order.customer_name,
+      'Phone': order.phone,
+      'Address': order.address,
+      'Location': order.delivery_location,
+      'Total Amount (৳)': order.total_amount,
+      'Status': order.status,
+      'Date': new Date(order.created_at).toLocaleString(),
+      'Items': order.items.map(i => `${i.name} (${i.size}) x${i.quantity}`).join(', ')
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Orders');
+    XLSX.writeFile(workbook, `Orders_Export_${new Date().toLocaleDateString()}.xlsx`);
+  };
+
+  const generateInvoicePDF = (order: any) => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(6, 78, 59); // Emerald-900
+    doc.text('Elegance in Every thread', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text('Premium Clothing Storefront', 105, 28, { align: 'center' });
+    
+    doc.setDrawColor(230);
+    doc.line(20, 35, 190, 35);
+    
+    // Order Info
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(`Invoice for Order #${order.id}`, 20, 45);
+    doc.setFontSize(10);
+    doc.text(`Date: ${new Date(order.created_at?.toDate?.() || order.created_at).toLocaleString()}`, 20, 52);
+    doc.text(`Status: ${order.status.toUpperCase()}`, 20, 59);
+    
+    // Customer Info
+    doc.setFontSize(12);
+    doc.text('Customer Details', 120, 45);
+    doc.setFontSize(10);
+    doc.text(`Name: ${order.customer_name}`, 120, 52);
+    doc.text(`Phone: ${order.phone}`, 120, 59);
+    doc.text(`Address: ${order.address}`, 120, 66, { maxWidth: 70 });
+    
+    // Items Table
+    const tableData = order.items.map((item: any) => [
+      item.name,
+      item.size,
+      `৳${item.price.toLocaleString()}`,
+      item.quantity,
+      `৳${(item.price * item.quantity).toLocaleString()}`
+    ]);
+    
+    (doc as any).autoTable({
+      startY: 80,
+      head: [['Product', 'Size', 'Price', 'Qty', 'Subtotal']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [6, 78, 59] },
+      margin: { left: 20, right: 20 }
+    });
+    
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    // Summary
+    doc.setFontSize(10);
+    doc.text(`Subtotal: ৳${(order.total_amount - (order.delivery_charge || 0)).toLocaleString()}`, 140, finalY);
+    doc.text(`Delivery Charge: ৳${(order.delivery_charge || 0).toLocaleString()}`, 140, finalY + 7);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total Amount: ৳${order.total_amount.toLocaleString()}`, 140, finalY + 15);
+    
+    // Footer
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(150);
+    doc.text('Thank you for shopping with us!', 105, 280, { align: 'center' });
+    
+    doc.save(`Invoice_Order_${order.id}.pdf`);
   };
 
   if (loading) {
@@ -999,10 +1128,16 @@ export default function App() {
                     <CardTitle>Admin Inventory & Pricing</CardTitle>
                     <CardDescription>Manage your product catalog and stock levels.</CardDescription>
                   </div>
-                  <Button onClick={() => setIsAddingItem(true)} className="bg-neutral-900 text-white">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Product
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={exportInventoryExcel} className="flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export Excel
+                    </Button>
+                    <Button onClick={() => setIsAddingItem(true)} className="bg-neutral-900 text-white">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Product
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {isAddingItem && (
@@ -1378,9 +1513,15 @@ export default function App() {
           {isAdmin && (
             <TabsContent value="orders" className="mt-0">
               <Card className="border-none shadow-sm">
-                <CardHeader>
-                  <CardTitle>Order Management</CardTitle>
-                  <CardDescription>Track and process customer orders.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Order Management</CardTitle>
+                    <CardDescription>Track and process customer orders.</CardDescription>
+                  </div>
+                  <Button variant="outline" onClick={exportOrdersExcel} className="flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    Export Excel
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
@@ -1399,7 +1540,8 @@ export default function App() {
                               <th className="pb-4 pr-4">Items</th>
                               <th className="pb-4 pr-4">Total</th>
                               <th className="pb-4 pr-4">Status</th>
-                              <th className="pb-4">Date</th>
+                              <th className="pb-4 pr-4">Date</th>
+                              <th className="pb-4 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1414,7 +1556,7 @@ export default function App() {
                                 <td className="py-4 pr-4">
                                   <div className="flex -space-x-2">
                                     {order.items.map((item, idx) => (
-                                      <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`${item.product_name} (${item.size}) x${item.quantity}`}>
+                                      <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`${item.name} (${item.size}) x${item.quantity}`}>
                                         <img src={item.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                                       </div>
                                     ))}
@@ -1447,8 +1589,19 @@ export default function App() {
                                     <option value="cancelled">Cancelled</option>
                                   </select>
                                 </td>
-                                <td className="py-4 text-neutral-500 text-xs">
+                                <td className="py-4 pr-4 text-neutral-500 text-xs">
                                   {new Date(order.created_at).toLocaleDateString()}
+                                </td>
+                                <td className="py-4 text-right">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-neutral-400 hover:text-neutral-900"
+                                    onClick={() => generateInvoicePDF(order)}
+                                    title="Download Invoice"
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                  </Button>
                                 </td>
                               </tr>
                             ))}
@@ -1833,13 +1986,27 @@ export default function App() {
                 <CheckCircle className="h-10 w-10 text-green-600" />
               </div>
               <h2 className="mb-2 text-2xl font-bold">Order Placed!</h2>
-              <p className="mb-8 text-neutral-500">Thank you for your order. We will contact you soon for confirmation.</p>
-              <Button 
-                className="w-full bg-neutral-900 text-white hover:bg-neutral-800"
-                onClick={() => setOrderSuccess(false)}
-              >
-                Continue Shopping
-              </Button>
+              <p className="mb-6 text-neutral-500">Thank you for your order. We will contact you soon for confirmation.</p>
+              
+              <div className="flex flex-col gap-3">
+                <Button 
+                  variant="outline"
+                  className="w-full flex items-center justify-center gap-2"
+                  onClick={() => lastOrder && generateInvoicePDF(lastOrder)}
+                >
+                  <Download className="h-4 w-4" />
+                  Download Invoice
+                </Button>
+                <Button 
+                  className="w-full bg-neutral-900 text-white hover:bg-neutral-800"
+                  onClick={() => {
+                    setOrderSuccess(false);
+                    setLastOrder(null);
+                  }}
+                >
+                  Continue Shopping
+                </Button>
+              </div>
             </motion.div>
           </div>
         )}

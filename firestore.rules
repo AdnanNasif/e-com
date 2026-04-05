@@ -10,23 +10,29 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' || 
-         (request.auth.token.email == "joseph.nasif@gmail.com" && request.auth.token.email_verified == true));
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') || 
+         (request.auth.token.email == "lizlifestylebd@gmail.com"));
     }
 
     function isValidProduct(data) {
       return data.keys().hasAll(['name', 'price', 'category']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.price is number && data.price >= 0 &&
              data.category is string;
     }
 
+    function isInventoryUpdate() {
+      // Allow updating ONLY the inventory field
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inventory', 'updated_at']);
+    }
+
     function isValidOrder(data) {
       return data.keys().hasAll(['customer_name', 'phone', 'address', 'items', 'total_amount']) &&
-             data.customer_name is string && data.customer_name.size() > 0 &&
-             data.phone is string && data.phone.size() > 0 &&
-             data.address is string && data.address.size() > 0 &&
-             data.items is list && data.items.size() > 0 &&
+             data.customer_name is string && data.customer_name.size() > 0 && data.customer_name.size() < 100 &&
+             data.phone is string && data.phone.size() > 0 && data.phone.size() < 20 &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
+             data.items is list && data.items.size() > 0 && data.items.size() < 50 &&
              data.total_amount is number && data.total_amount >= 0;
     }
 
@@ -37,7 +43,8 @@ service cloud.firestore {
     // Products collection
     match /products/{productId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() && isValidProduct(request.resource.data);
+      allow create, delete: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if (isAdmin() && isValidProduct(request.resource.data)) || isInventoryUpdate();
     }
 
     // Orders collection
@@ -50,7 +57,7 @@ service cloud.firestore {
     // Users collection (for role-based access)
     match /users/{userId} {
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
     }
   }
 }

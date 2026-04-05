@@ -16,7 +16,7 @@ export interface ClothingItem {
 }
 
 export interface CartItem extends ClothingItem {
-  selectedSize: 'S' | 'M' | 'L' | 'XL';
+  selectedSize: string;
   cartQuantity: number;
 }
 
