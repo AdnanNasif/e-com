@@ -196,6 +196,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    document.title = "Elegance in Every thread";
+  }, []);
+
+  useEffect(() => {
     if (!isAdmin) return;
     
     const ordersQuery = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
@@ -1694,9 +1698,6 @@ export default function App() {
                   <LogIn className="h-5 w-5" />
                   Sign in with Google
                 </Button>
-                <p className="text-center text-[10px] text-neutral-400">
-                  Authorized email: {ADMIN_EMAIL}
-                </p>
               </div>
             </motion.div>
           </div>
