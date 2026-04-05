@@ -227,13 +227,20 @@ export default function App() {
     try {
       const result = await loginWithGoogle();
       if (result.user.email !== ADMIN_EMAIL) {
-        setLoginError('Access denied: Unauthorized email');
+        setLoginError(`Access denied: ${result.user.email} is not authorized.`);
         await logout();
       } else {
         setShowLogin(false);
       }
-    } catch (err) {
-      setLoginError('Login failed. Please try again.');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      if (err.code === 'auth/unauthorized-domain') {
+        setLoginError('Login failed: This domain is not authorized in Firebase Console. Please add your Vercel domain to "Authorized Domains" in Firebase Auth settings.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setLoginError('Login failed: Popup blocked by browser. Please allow popups for this site.');
+      } else {
+        setLoginError(`Login failed: ${err.message || 'Please try again.'}`);
+      }
     }
   };
 
