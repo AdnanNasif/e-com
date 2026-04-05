@@ -180,11 +180,6 @@ export default function App() {
       })) as ClothingItem[];
       setItems(productsData);
       setLoading(false);
-      
-      // Seed if empty
-      if (productsData.length === 0) {
-        seedInitialData();
-      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
     });
@@ -969,7 +964,7 @@ export default function App() {
                             key={inv.size}
                             disabled={inv.quantity === 0}
                             onClick={() => addToCart(selectedProduct, inv.size as any)}
-                            className={`h-16 min-w-[5.5rem] px-8 text-base font-black border-2 rounded-xl transition-all duration-300 ${
+                            className={`h-14 min-w-[4rem] px-4 text-sm font-black border-2 rounded-xl transition-all duration-300 ${
                               inv.quantity === 0 
                                 ? 'opacity-10 cursor-not-allowed bg-neutral-50 border-neutral-100' 
                                 : 'border-neutral-100 hover:border-neutral-900 hover:bg-neutral-900 hover:text-white shadow-sm hover:shadow-2xl active:scale-95'
@@ -1102,7 +1097,7 @@ export default function App() {
                               variant="outline"
                               size="sm"
                               disabled={inv.quantity === 0}
-                              className={`h-8 w-10 p-0 text-xs font-bold ${
+                              className={`h-8 min-w-[2.5rem] px-2 text-[10px] font-bold ${
                                 inv.quantity === 0 ? 'opacity-50' : 'hover:bg-neutral-900 hover:text-white'
                               }`}
                               onClick={() => addToCart(item, inv.size as any)}
@@ -1133,6 +1128,12 @@ export default function App() {
                     <CardDescription>Manage your product catalog and stock levels.</CardDescription>
                   </div>
                   <div className="flex gap-2">
+                    {items.length === 0 && (
+                      <Button variant="outline" onClick={seedInitialData} className="flex items-center gap-2 border-dashed">
+                        <Sparkles className="h-4 w-4" />
+                        Seed Sample Data
+                      </Button>
+                    )}
                     <Button variant="outline" onClick={exportInventoryExcel} className="flex items-center gap-2">
                       <Download className="h-4 w-4" />
                       Export Excel
@@ -1343,20 +1344,20 @@ export default function App() {
                   <div className="rounded-md border overflow-x-auto">
                     <div className="min-w-[800px]">
                       <div className="grid grid-cols-12 bg-neutral-50 p-4 text-xs font-bold uppercase tracking-wider text-neutral-500">
-                        <div className="col-span-3">Product</div>
+                        <div className="col-span-2">Product</div>
                         <div className="col-span-2">Price (৳)</div>
-                        <div className="col-span-4 text-center">Stock by Size</div>
+                        <div className="col-span-5 text-center">Stock by Size</div>
                         <div className="col-span-1 text-center">Order</div>
                         <div className="col-span-2 text-right">Actions</div>
                       </div>
                       <div className="divide-y">
                         {items.map((item) => (
                           <div key={item.id} className="grid grid-cols-12 items-center p-4 transition-colors hover:bg-neutral-50/50">
-                            <div className="col-span-3 flex items-center gap-3">
+                            <div className="col-span-2 flex items-center gap-3">
                               <img src={item.image} alt="" className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
-                              <div>
-                                <p className="font-semibold text-sm">{item.name}</p>
-                                <p className="text-[10px] text-neutral-400">{item.category}</p>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm truncate">{item.name}</p>
+                                <p className="text-[10px] text-neutral-400 truncate">{item.category}</p>
                               </div>
                             </div>
                             <div className="col-span-2 px-2 flex flex-col gap-1">
@@ -1384,19 +1385,21 @@ export default function App() {
                                 />
                               </div>
                             </div>
-                            <div className="col-span-4 flex justify-center gap-2">
+                            <div className="col-span-5 flex justify-center gap-1 sm:gap-2">
                               {item.inventory.map((inv) => (
                                 <div key={inv.size} className="flex flex-col items-center gap-1">
-                                  <span className="text-[10px] font-bold text-neutral-400">{inv.size}</span>
-                                  <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
+                                  <span className="text-[9px] font-bold text-neutral-400 truncate max-w-[40px]" title={inv.size}>
+                                    {inv.size === 'Unstitched' ? 'Unst.' : inv.size === 'Freesize' ? 'Free' : inv.size}
+                                  </span>
+                                  <div className="flex items-center gap-1 rounded-lg border bg-white p-0.5 sm:p-1">
                                     <button onClick={() => updateInventory(item.id, inv.size, inv.quantity - 1)} className="rounded p-0.5 hover:bg-neutral-100">
-                                      <Minus className="h-3 w-3" />
+                                      <Minus className="h-2 w-2 sm:h-3 sm:w-3" />
                                     </button>
-                                    <span className={`min-w-[2ch] text-center text-xs font-bold ${inv.quantity < 5 ? 'text-red-500' : ''}`}>
+                                    <span className={`min-w-[2ch] text-center text-[10px] sm:text-xs font-bold ${inv.quantity < 5 ? 'text-red-500' : ''}`}>
                                       {inv.quantity}
                                     </span>
                                     <button onClick={() => updateInventory(item.id, inv.size, inv.quantity + 1)} className="rounded p-0.5 hover:bg-neutral-100">
-                                      <Plus className="h-3 w-3" />
+                                      <Plus className="h-2 w-2 sm:h-3 sm:w-3" />
                                     </button>
                                   </div>
                                 </div>
