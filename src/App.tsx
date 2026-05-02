@@ -941,7 +941,7 @@ export default function App() {
                 <Sparkles className="h-6 w-6 text-emerald-100 drop-shadow-[0_0_8px_rgba(209,250,229,0.6)]" />
               </div>
               <div className="flex flex-col">
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-neutral-100 via-[#064E3B] to-neutral-900 dark:to-neutral-100 bg-clip-text text-transparent drop-shadow-sm">
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-foreground via-[#064E3B] to-neutral-900 dark:to-foreground bg-clip-text text-transparent drop-shadow-sm">
                   Liz Lifestyle
                 </h1>
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mt-1 dark:text-muted-foreground">
@@ -1029,7 +1029,7 @@ export default function App() {
                     <Sparkles className="h-6 w-6 text-emerald-100" />
                   </div>
                   <div className="flex flex-col">
-                    <h1 className="text-xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-neutral-100 via-[#064E3B] to-neutral-900 dark:to-neutral-100 bg-clip-text text-transparent drop-shadow-sm">
+                    <h1 className="text-xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-foreground via-[#064E3B] to-neutral-900 dark:to-foreground bg-clip-text text-transparent drop-shadow-sm">
                       Liz Lifestyle
                     </h1>
                     <span className="text-[8px] font-bold uppercase tracking-widest text-neutral-400 mt-0.5">
