@@ -35,7 +35,9 @@ import {
   LogIn,
   Download,
   FileText,
-  Mail
+  Mail,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -116,6 +118,24 @@ export default function App() {
   const [showBulkDeleteProductsConfirm, setShowBulkDeleteProductsConfirm] = useState(false);
   const [showBulkDeleteOrdersConfirm, setShowBulkDeleteOrdersConfirm] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
 
   // Selection handlers for Inventory
   const toggleSelectProduct = (id: string) => {
@@ -903,28 +923,28 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans text-neutral-900">
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 font-sans text-neutral-900 dark:text-foreground transition-colors duration-300">
       {/* Header */}
-      <header className="sticky top-0 z-40 w-full border-b bg-white/95 backdrop-blur-md shadow-sm">
+      <header className="sticky top-0 z-40 w-full border-b dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-sm">
         <div className="container mx-auto flex h-20 items-center justify-between px-4">
           <div className="flex items-center gap-4">
             <Button 
               variant="ghost" 
               size="icon" 
-              className="hover:bg-neutral-100"
+              className="hover:bg-neutral-100 dark:hover:bg-neutral-800"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
             >
-              <Menu className="h-7 w-7 text-neutral-900" />
+              <Menu className="h-7 w-7 text-neutral-900 dark:text-foreground" />
             </Button>
             <div className="flex items-center gap-3 group cursor-pointer" onClick={() => setSelectedCategory('All')}>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#064E3B] to-neutral-900 shadow-[0_8px_20px_-6px_rgba(6,78,59,0.4)] transition-all duration-500 group-hover:scale-110 group-hover:shadow-[0_12px_25px_-4px_rgba(6,78,59,0.5)]">
                 <Sparkles className="h-6 w-6 text-emerald-100 drop-shadow-[0_0_8px_rgba(209,250,229,0.6)]" />
               </div>
               <div className="flex flex-col">
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 via-[#064E3B] to-neutral-900 bg-clip-text text-transparent drop-shadow-sm">
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-neutral-100 via-[#064E3B] to-neutral-900 dark:to-neutral-100 bg-clip-text text-transparent drop-shadow-sm">
                   Liz Lifestyle
                 </h1>
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mt-1">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mt-1 dark:text-muted-foreground">
                   Elegance in every thread
                 </span>
               </div>
@@ -935,26 +955,37 @@ export default function App() {
             {/* Categories moved to hamburger menu */}
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative hidden sm:block">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="relative hidden md:block">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-500" />
               <Input
                 type="search"
                 placeholder="Search styles..."
-                className="w-64 pl-9 bg-neutral-100 border-none focus-visible:ring-1 focus-visible:ring-neutral-400"
+                className="w-64 pl-9 bg-neutral-100 dark:bg-neutral-800 border-none focus-visible:ring-1 focus-visible:ring-neutral-400 dark:placeholder:text-neutral-500"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+
             <Button 
               variant="outline" 
               size="icon" 
-              className="relative"
+              className="relative dark:border-neutral-800 dark:hover:bg-neutral-800"
               onClick={() => setIsCartOpen(true)}
             >
               <ShoppingBag className="h-5 w-5" />
               {cart.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-neutral-900 dark:bg-foreground text-[10px] font-bold text-white dark:text-background">
                   {cart.reduce((s, i) => s + i.cartQuantity, 0)}
                 </span>
               )}
@@ -990,7 +1021,7 @@ export default function App() {
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="absolute bottom-0 left-0 top-0 w-80 bg-white p-6 shadow-2xl"
+              className="absolute bottom-0 left-0 top-0 w-80 bg-white dark:bg-neutral-900 p-6 shadow-2xl"
             >
               <div className="mb-8 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -998,7 +1029,7 @@ export default function App() {
                     <Sparkles className="h-6 w-6 text-emerald-100" />
                   </div>
                   <div className="flex flex-col">
-                    <h1 className="text-xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 via-[#064E3B] to-neutral-900 bg-clip-text text-transparent drop-shadow-sm">
+                    <h1 className="text-xl font-black tracking-tight leading-none bg-gradient-to-br from-neutral-900 dark:from-neutral-100 via-[#064E3B] to-neutral-900 dark:to-neutral-100 bg-clip-text text-transparent drop-shadow-sm">
                       Liz Lifestyle
                     </h1>
                     <span className="text-[8px] font-bold uppercase tracking-widest text-neutral-400 mt-0.5">
@@ -1029,8 +1060,8 @@ export default function App() {
                             }}
                             className={`w-full flex items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-all ${
                               isSelectedOrChild
-                                ? 'bg-neutral-900 text-white' 
-                                : 'text-neutral-600 hover:bg-neutral-100'
+                                ? 'bg-neutral-900 dark:bg-foreground text-white dark:text-background' 
+                                : 'text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800'
                             }`}
                           >
                             {cat}
@@ -1052,12 +1083,12 @@ export default function App() {
                                   }}
                                   className={`flex items-center justify-between rounded-lg px-4 py-2 text-xs font-medium transition-all ${
                                     selectedCategory === sub 
-                                      ? 'text-neutral-900 font-bold' 
-                                      : 'text-neutral-500 hover:text-neutral-900'
+                                      ? 'text-neutral-900 dark:text-foreground font-bold' 
+                                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-foreground'
                                   }`}
                                 >
                                   {sub}
-                                  {selectedCategory === sub && <div className="h-1 w-1 rounded-full bg-neutral-900" />}
+                                  {selectedCategory === sub && <div className="h-1 w-1 rounded-full bg-neutral-900 dark:bg-foreground" />}
                                 </button>
                               ))}
                             </div>
@@ -1086,16 +1117,16 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className={selectedProduct ? "bg-white min-h-screen" : "container mx-auto px-4 py-8"}>
+      <main className={selectedProduct ? "bg-white dark:bg-neutral-950 min-h-screen" : "container mx-auto px-4 py-8"}>
         {selectedProduct ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="bg-white"
+            className="bg-white dark:bg-neutral-950"
           >
             <div className="max-w-7xl mx-auto">
-              <div className="p-4 md:p-8 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="p-4 md:p-8 flex items-center justify-between bg-white dark:bg-neutral-950 sticky top-0 z-10">
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -1113,8 +1144,8 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[calc(100vh-80px)]">
-                <div className="p-4 md:p-12 lg:p-20 flex flex-col gap-12 bg-white">
-                  <div className="relative aspect-square bg-white group/zoom cursor-zoom-in overflow-hidden" onClick={() => setZoomedImage(selectedProduct.images?.[activeImageIdx] || selectedProduct.image)}>
+                <div className="p-4 md:p-12 lg:p-20 flex flex-col gap-12 bg-white dark:bg-neutral-950">
+                  <div className="relative aspect-square bg-white dark:bg-neutral-900 group/zoom cursor-zoom-in overflow-hidden" onClick={() => setZoomedImage(selectedProduct.images?.[activeImageIdx] || selectedProduct.image)}>
                     {selectedProduct.original_price && selectedProduct.original_price > selectedProduct.price && (
                       <div className="absolute left-0 top-0 z-10 bg-[#2C3E50] text-white text-[14px] font-black px-4 py-2 rounded-sm shadow-xl">
                         -{Math.round(((selectedProduct.original_price - selectedProduct.price) / selectedProduct.original_price) * 100)}%
@@ -1219,7 +1250,7 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="flex flex-col p-8 md:p-16 lg:p-24 bg-white">
+                <div className="flex flex-col p-8 md:p-16 lg:p-24 bg-white dark:bg-neutral-950">
                   <div className="mb-12">
                     {selectedProduct.product_code && (
                       <div className="inline-flex mb-8">
@@ -1233,7 +1264,7 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    <h2 className="mb-6 text-4xl md:text-5xl font-black text-neutral-900 leading-[1.1] tracking-tight">
+                    <h2 className="mb-6 text-4xl md:text-5xl font-black text-neutral-900 dark:text-foreground leading-[1.1] tracking-tight">
                       {selectedProduct.category}
                     </h2>
                     <div className="flex items-center gap-8">
@@ -1245,12 +1276,12 @@ export default function App() {
                           </span>
                         </div>
                       )}
-                      <span className="text-5xl font-black text-neutral-900">TK {selectedProduct.price.toLocaleString()}</span>
+                      <span className="text-5xl font-black text-neutral-900 dark:text-foreground">TK {selectedProduct.price.toLocaleString()}</span>
                     </div>
                   </div>
 
                   <div className="mb-16 space-y-8">
-                    <div className="text-lg text-neutral-600 space-y-6 leading-relaxed">
+                    <div className="text-lg text-neutral-600 dark:text-muted-foreground space-y-6 leading-relaxed">
                       {selectedProduct.description.split('\n').map((line, i) => (
                         <p key={i} className="flex items-start gap-4">
                           <span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-neutral-200" />
@@ -1260,7 +1291,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="mb-16 pb-10 border-b border-neutral-100">
+                  <div className="mb-16 pb-10 border-b border-neutral-100 dark:border-neutral-800">
                     <div className="flex items-center gap-4 text-sm">
                       <span className="font-black text-neutral-900 uppercase tracking-[0.2em] text-[12px]">Category:</span>
                       <button 
@@ -1375,12 +1406,12 @@ export default function App() {
                 <section>
                   <div className="flex items-center justify-between mb-8">
                     <div className="space-y-1">
-                      <h2 className="text-2xl font-black text-neutral-900 tracking-tight uppercase">Premium Highlights</h2>
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Curated by Liz Lifestyle</p>
+                      <h2 className="text-2xl font-black text-neutral-900 dark:text-foreground tracking-tight uppercase">Premium Highlights</h2>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400 dark:text-muted-foreground">Curated by Liz Lifestyle</p>
                     </div>
                     <div className="h-[2px] flex-1 bg-neutral-100 mx-8 hidden md:block" />
                     <div className="flex items-center gap-2">
-                      <div className="text-[9px] font-black uppercase text-neutral-400 mr-2">Rotating Selection</div>
+                      <div className="text-[9px] font-black uppercase text-neutral-400 dark:text-muted-foreground mr-2">Rotating Selection</div>
                       <div className="flex gap-1">
                         {highlightItems.map((_, i) => (
                           <div 
@@ -1495,15 +1526,15 @@ export default function App() {
                 <section>
                   <div className="flex items-center justify-between mb-8">
                     <div className="space-y-1">
-                      <h2 className="text-2xl font-black text-neutral-900 tracking-tight uppercase">
+                      <h2 className="text-2xl font-black text-neutral-900 dark:text-foreground tracking-tight uppercase">
                         Available Now
                       </h2>
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">All in-stock collections</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400 dark:text-muted-foreground">All in-stock collections</p>
                     </div>
                     <Button 
                       variant="ghost" 
                       onClick={() => setSelectedCategory('All')}
-                      className="text-[10px] font-black uppercase tracking-widest hover:bg-neutral-900 hover:text-white transition-all gap-2"
+                      className="text-[10px] font-black uppercase tracking-widest hover:bg-neutral-900 dark:hover:bg-neutral-100 hover:text-white dark:hover:text-neutral-900 transition-all gap-2 dark:text-muted-foreground"
                     >
                       Browse Catalog <ArrowRight className="h-4 w-4" />
                     </Button>
@@ -1522,23 +1553,23 @@ export default function App() {
                           setActiveImageIdx(0);
                         }}
                       >
-                        <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
+                        <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 dark:bg-neutral-900 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
                           <img src={item.image} alt="" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
                           <div className="absolute top-3 left-3 z-20">
-                            <span className="inline-block px-3 py-1 bg-neutral-900 text-white text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
+                            <span className="inline-block px-3 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
                               {item.product_code}
                             </span>
                           </div>
-                          <div className="absolute inset-0 border-[12px] border-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl" />
+                          <div className="absolute inset-0 border-[12px] border-white/40 dark:border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl" />
                         </div>
                         <div className="px-2">
                           <div className="flex justify-between items-start mb-1">
-                             {item.product_code && <p className="text-[10px] font-mono font-black text-neutral-400 uppercase tracking-widest">{item.product_code}</p>}
+                             {item.product_code && <p className="text-[10px] font-mono font-black text-neutral-400 dark:text-muted-foreground uppercase tracking-widest">{item.product_code}</p>}
                              <div className="flex flex-col items-end">
                                {item.original_price && item.original_price > item.price && (
-                                 <span className="text-[9px] text-neutral-400 line-through font-medium">TK {item.original_price.toLocaleString()}</span>
+                                 <span className="text-[9px] text-neutral-400 dark:text-muted-foreground line-through font-medium">TK {item.original_price.toLocaleString()}</span>
                                )}
-                               <p className="text-lg font-black text-neutral-900">
+                               <p className="text-lg font-black text-neutral-900 dark:text-foreground">
                                  TK {item.price.toLocaleString()}
                                  {item.original_price && item.original_price > item.price && (
                                    <span className="ml-1 text-[10px] text-red-500 font-black">
@@ -1548,7 +1579,7 @@ export default function App() {
                                </p>
                              </div>
                           </div>
-                          <h4 className="text-sm font-bold text-neutral-900 line-clamp-1 group-hover:text-neutral-500 transition-colors uppercase">{item.category}</h4>
+                          <h4 className="text-sm font-bold text-neutral-900 dark:text-foreground line-clamp-1 group-hover:text-neutral-500 transition-colors uppercase">{item.category}</h4>
                         </div>
                       </div>
                     ))}
@@ -1557,22 +1588,22 @@ export default function App() {
                 
                 <div className="relative py-8">
                   <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                    <div className="w-full border-t border-neutral-100" />
+                    <div className="w-full border-t border-neutral-100 dark:border-neutral-800" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="bg-white px-6 text-[10px] font-black uppercase tracking-[0.5em] text-neutral-300">Catalog Explorer</span>
+                    <span className="bg-white dark:bg-neutral-950 px-6 text-[10px] font-black uppercase tracking-[0.5em] text-neutral-300 dark:text-neutral-600">Catalog Explorer</span>
                   </div>
                 </div>
 
                 {/* Filter Bar */}
-                <div className="flex flex-col md:flex-row gap-4 mb-8 p-4 bg-neutral-50 rounded-2xl border border-neutral-100">
+                <div className="flex flex-col md:flex-row gap-4 mb-8 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-2xl border border-neutral-100 dark:border-neutral-800">
                   <div className="flex-1 flex flex-wrap gap-3">
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Price Range</label>
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Price Range</label>
                       <select 
                         value={priceFilter}
                         onChange={(e) => setPriceFilter(e.target.value as any)}
-                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                        className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
                       >
                         <option value="all">Any Price</option>
                         <option value="under1000">Under TK 1,000</option>
@@ -1582,11 +1613,11 @@ export default function App() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Availability</label>
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Availability</label>
                       <select 
                         value={stockFilter}
                         onChange={(e) => setStockFilter(e.target.value as any)}
-                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                        className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
                       >
                         <option value="all">All Items</option>
                         <option value="instock">In Stock Only</option>
@@ -1594,11 +1625,11 @@ export default function App() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Sort By</label>
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Sort By</label>
                       <select 
                         value={sortBy}
                         onChange={(e) => setSortBy(e.target.value as any)}
-                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                        className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
                       >
                         <option value="newest">Latest Arrivals</option>
                         <option value="priceLow">Price: Low to High</option>
@@ -1667,21 +1698,21 @@ export default function App() {
                       <CardHeader className="p-4 pb-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
-                            <CardTitle className="text-base font-bold line-clamp-1">
+                            <CardTitle className="text-base font-bold line-clamp-1 dark:text-foreground">
                               {item.product_code && (
-                                <span className="inline-block px-1.5 py-0.5 bg-neutral-900 text-white text-[9px] font-mono font-black mr-2 uppercase rounded-sm">
+                                <span className="inline-block px-1.5 py-0.5 bg-neutral-900 dark:bg-foreground text-white dark:text-background text-[9px] font-mono font-black mr-2 uppercase rounded-sm">
                                   {item.product_code}
                                 </span>
                               )}
                               {item.category}
                             </CardTitle>
-                            <CardDescription className="line-clamp-1 text-xs">{item.description}</CardDescription>
+                            <CardDescription className="line-clamp-1 text-xs dark:text-muted-foreground">{item.description}</CardDescription>
                           </div>
                           <div className="flex flex-col items-end">
                             {item.original_price && item.original_price > item.price && (
-                              <span className="text-[10px] text-neutral-400 line-through font-medium">TK {item.original_price.toLocaleString()}</span>
+                              <span className="text-[10px] text-neutral-400 dark:text-muted-foreground line-through font-medium">TK {item.original_price.toLocaleString()}</span>
                             )}
-                            <span className="text-xl font-black text-neutral-900">TK {item.price.toLocaleString()}</span>
+                            <span className="text-xl font-black text-neutral-900 dark:text-foreground">TK {item.price.toLocaleString()}</span>
                           </div>
                         </div>
                       </CardHeader>
@@ -2581,10 +2612,10 @@ export default function App() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 z-50 h-full w-full max-w-md bg-white shadow-2xl"
+              className="fixed right-0 top-0 z-50 h-full w-full max-w-md bg-white dark:bg-neutral-900 shadow-2xl"
             >
               <div className="flex h-full flex-col">
-                <div className="flex items-center justify-between border-b p-6">
+                <div className="flex items-center justify-between border-b dark:border-neutral-800 p-6">
                   <div className="flex items-center gap-2">
                     <ShoppingBag className="h-5 w-5" />
                     <h2 className="text-xl font-bold">Your Bag</h2>
@@ -2617,7 +2648,7 @@ export default function App() {
                                   {item.product_code && <span className="text-[10px] font-mono font-bold text-neutral-400 mr-1 uppercase">{item.product_code}</span>}
                                   {item.category}
                                 </h3>
-                                <p className="text-lg font-black text-neutral-900">TK {(item.price * item.cartQuantity).toLocaleString()}</p>
+                                <p className="text-lg font-black text-neutral-900 dark:text-foreground">TK {(item.price * item.cartQuantity).toLocaleString()}</p>
                               </div>
                               <p className="text-xs text-neutral-500">Size: {item.selectedSize}</p>
                             </div>
@@ -2642,8 +2673,8 @@ export default function App() {
                   )}
                 </ScrollArea>
 
-                <div className="border-t p-6 space-y-4">
-                  <div className="flex items-center justify-between text-2xl font-black text-neutral-900">
+                <div className="border-t dark:border-neutral-800 p-6 space-y-4">
+                  <div className="flex items-center justify-between text-2xl font-black text-neutral-900 dark:text-foreground">
                     <span>Total</span>
                     <span>TK {totalCartPrice.toLocaleString()}</span>
                   </div>
