@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { 
   ShoppingBag, 
   Search, 
@@ -34,7 +34,8 @@ import {
   Sparkles,
   LogIn,
   Download,
-  FileText
+  FileText,
+  Mail
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,7 +44,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ClothingItem, CartItem, Order } from './types';
+import { ClothingItem, CartItem, Order, HomepageSettings } from './types';
 import { 
   db, 
   auth, 
@@ -51,10 +52,12 @@ import {
   logout, 
   collection, 
   doc, 
+  getDoc,
   getDocs, 
   addDoc, 
   updateDoc, 
   deleteDoc, 
+  setDoc,
   onSnapshot, 
   query, 
   orderBy, 
@@ -98,13 +101,119 @@ export default function App() {
   });
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [homepageSettings, setHomepageSettings] = useState<HomepageSettings>({
+    highlight_product_ids: [],
+    featured_product_ids: [],
+    featured_category: 'Coco'
+  });
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ClothingItem | null>(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null);
+  const [showBulkDeleteProductsConfirm, setShowBulkDeleteProductsConfirm] = useState(false);
+  const [showBulkDeleteOrdersConfirm, setShowBulkDeleteOrdersConfirm] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  // Selection handlers for Inventory
+  const toggleSelectProduct = (id: string) => {
+    setSelectedProductIds(prev => 
+      prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllProducts = () => {
+    if (selectedProductIds.length === items.length) {
+      setSelectedProductIds([]);
+    } else {
+      setSelectedProductIds(items.map(item => item.id));
+    }
+  };
+
+  const handleBulkDeleteProducts = async () => {
+    if (!isAdmin || selectedProductIds.length === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      for (const id of selectedProductIds) {
+        await deleteDoc(doc(db, 'products', id));
+      }
+      setSelectedProductIds([]);
+      setShowBulkDeleteProductsConfirm(false);
+      setSaveStatus({ type: 'success', message: `Successfully deleted ${selectedProductIds.length} products.` });
+    } catch (err) {
+      console.error('Bulk delete products failed:', err);
+      setSaveStatus({ type: 'error', message: 'Failed to delete some products. Check console for details.' });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  // Selection handlers for Orders
+  const toggleSelectOrder = (id: string) => {
+    setSelectedOrderIds(prev => 
+      prev.includes(id) ? prev.filter(oId => oId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllOrders = () => {
+    if (selectedOrderIds.length === orders.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(orders.map(order => order.id));
+    }
+  };
+
+  const handleBulkDeleteOrders = async () => {
+    if (!isAdmin || selectedOrderIds.length === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      for (const id of selectedOrderIds) {
+        const orderToDelete = orders.find(o => o.id === id);
+        if (orderToDelete) {
+          // Restore stock one by one, fetching latest to avoid stale data
+          for (const item of orderToDelete.items) {
+            const productRef = doc(db, 'products', item.id);
+            const pDoc = await getDoc(productRef);
+            if (pDoc.exists()) {
+              const pData = pDoc.data() as ClothingItem;
+              const newInventory = pData.inventory.map(inv => 
+                inv.size === item.size 
+                  ? { ...inv, quantity: inv.quantity + item.quantity } 
+                  : inv
+              );
+              await updateDoc(productRef, { inventory: newInventory });
+            }
+          }
+          // Delete order
+          await deleteDoc(doc(db, 'orders', id));
+        }
+      }
+      setSelectedOrderIds([]);
+      setShowBulkDeleteOrdersConfirm(false);
+      setSaveStatus({ type: 'success', message: `Successfully deleted ${selectedOrderIds.length} orders and restored stock.` });
+    } catch (err) {
+      console.error('Bulk delete orders failed:', err);
+      setSaveStatus({ type: 'error', message: 'Failed to delete some orders.' });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+  const highlightItems = useMemo(() => {
+    return (homepageSettings.highlight_product_ids || [])
+      .map(id => items.find(i => i.id === id))
+      .filter((item): item is ClothingItem => !!item && item.inventory.some(inv => inv.quantity > 0));
+  }, [homepageSettings.highlight_product_ids, items]);
+
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [currentHighlightIdx, setCurrentHighlightIdx] = useState(0);
+  const [priceFilter, setPriceFilter] = useState<'all' | 'under1000' | '1000-3000' | 'over3000'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'instock'>('all');
+  const [sortBy, setSortBy] = useState<'newest' | 'priceLow' | 'priceHigh'>('newest');
   const [checkoutForm, setCheckoutForm] = useState({
     customer_name: '',
     phone: '',
@@ -132,6 +241,16 @@ export default function App() {
     return Array.from(finalSet).filter(c => c !== '');
   }, [items]);
 
+  const sequentialItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const catCompare = a.category.localeCompare(b.category);
+      if (catCompare !== 0) return catCompare;
+      const codeA = a.product_code || '';
+      const codeB = b.product_code || '';
+      return codeA.localeCompare(codeB);
+    });
+  }, [items]);
+
   const mainCategories = useMemo(() => {
     const cats = new Set(items.map(i => i.category));
     // Filter out sub-categories from main list
@@ -147,19 +266,33 @@ export default function App() {
   }, [items]);
 
   const filteredItems = useMemo(() => {
-    return items.filter(item => {
+    let result = items.filter(item => {
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.description.toLowerCase().includes(searchQuery.toLowerCase());
+                          item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          item.product_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          item.category.toLowerCase().includes(searchQuery.toLowerCase());
       
-      if (selectedCategory === 'All') return matchesSearch;
-      
-      // If selected category has sub-categories, include them
-      const subCategories = CATEGORY_HIERARCHY[selectedCategory] || [];
-      const isInCategoryOrSub = item.category === selectedCategory || subCategories.includes(item.category);
-      
-      return matchesSearch && isInCategoryOrSub;
+      const categoryMatch = selectedCategory === 'All' || 
+                           item.category === selectedCategory || 
+                           (CATEGORY_HIERARCHY[selectedCategory] || []).includes(item.category);
+
+      const priceMatch = priceFilter === 'all' || (
+        priceFilter === 'under1000' ? item.price < 1000 :
+        priceFilter === '1000-3000' ? (item.price >= 1000 && item.price <= 3000) :
+        priceFilter === 'over3000' ? item.price > 3000 : true
+      );
+
+      const stockMatch = stockFilter === 'all' || item.inventory.some(inv => inv.quantity > 0);
+
+      return matchesSearch && categoryMatch && priceMatch && stockMatch;
     });
-  }, [items, searchQuery, selectedCategory]);
+
+    return [...result].sort((a, b) => {
+      if (sortBy === 'priceLow') return a.price - b.price;
+      if (sortBy === 'priceHigh') return b.price - a.price;
+      return (b.display_order || 0) - (a.display_order || 0);
+    });
+  }, [items, searchQuery, selectedCategory, priceFilter, stockFilter, sortBy]);
 
   const newOrdersCount = useMemo(() => {
     return orders.filter(o => o.status === 'pending').length;
@@ -187,9 +320,19 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, 'products');
     });
 
+    const settingsDocRef = doc(db, 'settings', 'homepage');
+    const unsubscribeSettings = onSnapshot(settingsDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setHomepageSettings(snapshot.data() as HomepageSettings);
+      }
+    }, (error) => {
+      console.error("Settings error:", error);
+    });
+
     return () => {
       unsubscribeAuth();
       unsubscribeProducts();
+      unsubscribeSettings();
     };
   }, []);
 
@@ -217,6 +360,15 @@ export default function App() {
 
     return () => unsubscribeOrders();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (highlightItems.length > 0) {
+      const interval = setInterval(() => {
+        setCurrentHighlightIdx(prev => (prev + 1) % highlightItems.length);
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [highlightItems]);
 
   const seedInitialData = async () => {
     const initialItems = [
@@ -315,11 +467,88 @@ export default function App() {
   };
 
   const totalCartPrice = cart.reduce((sum, item) => sum + (item.price * item.cartQuantity), 0);
-  const deliveryCharge = checkoutForm.delivery_location === 'inside' ? 50 : 110;
+  const deliveryCharge = checkoutForm.delivery_location === 'inside' ? 80 : 150;
   const finalTotal = totalCartPrice + deliveryCharge;
+
+  const sendOrderEmail = async (order: any) => {
+    try {
+      const orderHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+          <h1 style="color: #064e3b; text-align: center;">New Order Received!</h1>
+          <p style="text-align: center; color: #666;">Order ID: #${order.id}</p>
+          <hr style="border: none; border-top: 1px solid #eee;" />
+          
+          <h2 style="font-size: 18px;">Customer Details</h2>
+          <p style="margin: 5px 0;"><strong>Name:</strong> ${order.customer_name}</p>
+          <p style="margin: 5px 0;"><strong>Phone:</strong> ${order.phone}</p>
+          <p style="margin: 5px 0;"><strong>Address:</strong> ${order.address}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${order.delivery_location === 'inside' ? 'Inside Dhaka' : 'Outside Dhaka'}</p>
+          
+          <h2 style="font-size: 18px; margin-top: 20px;">Items Ordered</h2>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 10px; border: 1px solid #eee; text-align: left;">Product</th>
+                <th style="padding: 10px; border: 1px solid #eee; text-align: center;">Size</th>
+                <th style="padding: 10px; border: 1px solid #eee; text-align: center;">Qty</th>
+                <th style="padding: 10px; border: 1px solid #eee; text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${order.items.map((item: any) => `
+                <tr>
+                  <td style="padding: 10px; border: 1px solid #eee;">${item.name} (${item.product_code})</td>
+                  <td style="padding: 10px; border: 1px solid #eee; text-align: center;">${item.size}</td>
+                  <td style="padding: 10px; border: 1px solid #eee; text-align: center;">${item.quantity}</td>
+                  <td style="padding: 10px; border: 1px solid #eee; text-align: right;">TK ${(item.price * item.quantity).toLocaleString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          
+          <div style="margin-top: 20px; text-align: right;">
+            <p style="margin: 5px 0;"><strong>Delivery Charge:</strong> TK ${(order.delivery_charge || 0).toLocaleString()}</p>
+            <h2 style="margin: 10px 0; color: #064e3b;">Total Amount: TK ${order.total_amount.toLocaleString()}</h2>
+          </div>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;" />
+          <p style="text-align: center; color: #999; font-size: 12px;">Elegance Store Notification System</p>
+        </div>
+      `;
+
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: 'lizlifestylebd@gmail.com',
+          subject: `New Order #${order.id} from ${order.customer_name}`,
+          html: orderHtml,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error('Email Notification Failed:', result);
+        
+        // Notify admin about common setup issues
+        if (result.name === 'validation_error') {
+          console.warn('ACTION REQUIRED: Your Resend account is not verified for "lizlifestylebd@gmail.com". Please verify it in your Resend Dashboard > Settings > Senders.');
+        } else if (result.error && result.error.includes('apiKey')) {
+          console.error('RESEND_API_KEY is invalid or missing.');
+        }
+      } else {
+        console.log('Email Notification Sent Successfully:', result);
+      }
+    } catch (err) {
+      console.error('Failed to send email notification:', err);
+    }
+  };
 
   const handleCheckout = async (e: FormEvent) => {
     e.preventDefault();
+    if (cart.length === 0 || isSubmittingOrder) return;
     setIsSubmittingOrder(true);
     try {
       const orderData = {
@@ -331,7 +560,8 @@ export default function App() {
         total_amount: finalTotal,
         items: cart.map(item => ({
           id: item.id,
-          name: item.name,
+          name: item.category,
+          product_code: item.product_code,
           price: item.price,
           quantity: item.cartQuantity,
           size: item.selectedSize,
@@ -363,6 +593,10 @@ export default function App() {
       setCart([]);
       setIsCheckoutOpen(false);
       setIsCartOpen(false);
+      
+      // Send Email Notification
+      sendOrderEmail(fullOrder);
+
       setCheckoutForm({
         customer_name: '',
         phone: '',
@@ -390,8 +624,8 @@ export default function App() {
     e.preventDefault();
     if (!isAdmin) return;
     
-    if (!newItemForm.name || !newItemForm.price || isNaN(parseFloat(newItemForm.price))) {
-      setSaveStatus({ type: 'error', message: 'Please provide a valid name and price.' });
+    if (!newItemForm.category || !newItemForm.price || isNaN(parseFloat(newItemForm.price))) {
+      setSaveStatus({ type: 'error', message: 'Please provide a valid category and price.' });
       return;
     }
 
@@ -421,7 +655,7 @@ export default function App() {
       }
       
       const payload = {
-        name: newItemForm.name,
+        name: newItemForm.category, // Use category as product name
         product_code: productCode,
         category: newItemForm.category,
         price: parseFloat(newItemForm.price),
@@ -488,6 +722,34 @@ export default function App() {
     }
   };
 
+  const handleDeleteOrder = async (id: string) => {
+    if (!isAdmin) return;
+    try {
+      const orderToDelete = orders.find(o => o.id === id);
+      if (!orderToDelete) return;
+
+      // Revert inventory for each item in the order
+      for (const item of orderToDelete.items) {
+        const productRef = doc(db, 'products', item.id);
+        const product = items.find(i => i.id === item.id);
+        if (product) {
+          const newInventory = product.inventory.map(inv => 
+            inv.size === item.size 
+              ? { ...inv, quantity: inv.quantity + item.quantity } 
+              : inv
+          );
+          await updateDoc(productRef, { inventory: newInventory });
+        }
+      }
+
+      // Delete the order
+      await deleteDoc(doc(db, 'orders', id));
+      setConfirmDeleteOrderId(null);
+    } catch (err) {
+      console.error('Failed to delete order:', err);
+    }
+  };
+
   const moveProduct = async (item: ClothingItem, position: 'top' | 'bottom') => {
     if (!isAdmin) return;
     let newOrder = 0;
@@ -529,8 +791,8 @@ export default function App() {
       const row: any = {
         'Product Name': item.name,
         'Category': item.category,
-        'Price (৳)': item.price,
-        'Original Price (৳)': item.original_price || 'N/A',
+        'Price (TK)': item.price,
+        'Original Price (TK)': item.original_price || 'N/A',
       };
       item.inventory.forEach(inv => {
         row[`Size ${inv.size}`] = inv.quantity;
@@ -552,7 +814,7 @@ export default function App() {
       'Phone': order.phone,
       'Address': order.address,
       'Location': order.delivery_location,
-      'Total Amount (৳)': order.total_amount,
+      'Total Amount (TK)': order.total_amount,
       'Status': order.status,
       'Date': new Date(order.created_at).toLocaleString(),
       'Items': order.items.map(i => `${i.name} (${i.size}) x${i.quantity}`).join(', ')
@@ -570,11 +832,11 @@ export default function App() {
     // Header
     doc.setFontSize(22);
     doc.setTextColor(6, 78, 59); // Emerald-900
-    doc.text('Elegance in Every thread', 105, 20, { align: 'center' });
+    doc.text('Liz Lifestyle', 105, 20, { align: 'center' });
     
     doc.setFontSize(10);
     doc.setTextColor(100);
-    doc.text('Premium Clothing Storefront', 105, 28, { align: 'center' });
+    doc.text('Elegance in every Thread', 105, 28, { align: 'center' });
     
     doc.setDrawColor(230);
     doc.line(20, 35, 190, 35);
@@ -599,12 +861,12 @@ export default function App() {
     const tableData = order.items.map((item: any) => [
       item.name,
       item.size,
-      `৳${item.price.toLocaleString()}`,
+      `TK ${item.price.toLocaleString()}`,
       item.quantity,
-      `৳${(item.price * item.quantity).toLocaleString()}`
+      `TK ${(item.price * item.quantity).toLocaleString()}`
     ]);
     
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 80,
       head: [['Product', 'Size', 'Price', 'Qty', 'Subtotal']],
       body: tableData,
@@ -617,11 +879,11 @@ export default function App() {
     
     // Summary
     doc.setFontSize(10);
-    doc.text(`Subtotal: ৳${(order.total_amount - (order.delivery_charge || 0)).toLocaleString()}`, 140, finalY);
-    doc.text(`Delivery Charge: ৳${(order.delivery_charge || 0).toLocaleString()}`, 140, finalY + 7);
+    doc.text(`Subtotal: TK ${(order.total_amount - (order.delivery_charge || 0)).toLocaleString()}`, 140, finalY);
+    doc.text(`Delivery Charge: TK ${(order.delivery_charge || 0).toLocaleString()}`, 140, finalY + 7);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Total Amount: ৳${order.total_amount.toLocaleString()}`, 140, finalY + 15);
+    doc.text(`Total Amount: TK ${order.total_amount.toLocaleString()}`, 140, finalY + 15);
     
     // Footer
     doc.setFontSize(8);
@@ -959,19 +1221,31 @@ export default function App() {
 
                 <div className="flex flex-col p-8 md:p-16 lg:p-24 bg-white">
                   <div className="mb-12">
+                    {selectedProduct.product_code && (
+                      <div className="inline-flex mb-8">
+                        <div className="flex items-center gap-4 bg-neutral-900 text-white rounded-2xl p-1 pr-6 shadow-2xl border border-white/10 group overflow-hidden">
+                          <div className="bg-white text-neutral-900 px-4 py-2 font-black text-xs uppercase tracking-widest rounded-xl">
+                            Dress Code
+                          </div>
+                          <span className="text-xl font-mono font-black uppercase tracking-[0.3em] glow-text">
+                            {selectedProduct.product_code}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     <h2 className="mb-6 text-4xl md:text-5xl font-black text-neutral-900 leading-[1.1] tracking-tight">
-                      {selectedProduct.product_code && (
-                        <span className="block text-sm font-mono text-neutral-400 mb-2 uppercase tracking-widest">
-                          {selectedProduct.product_code}
-                        </span>
-                      )}
-                      {selectedProduct.name}
+                      {selectedProduct.category}
                     </h2>
                     <div className="flex items-center gap-8">
                       {selectedProduct.original_price && selectedProduct.original_price > selectedProduct.price && (
-                        <span className="text-2xl text-neutral-300 line-through font-bold">৳{selectedProduct.original_price.toLocaleString()}</span>
+                        <div className="flex flex-col">
+                          <span className="text-2xl text-neutral-300 line-through font-bold">TK {selectedProduct.original_price.toLocaleString()}</span>
+                          <span className="text-sm font-black text-red-500 uppercase tracking-widest">
+                            Save {Math.round(((selectedProduct.original_price - selectedProduct.price) / selectedProduct.original_price) * 100)}%
+                          </span>
+                        </div>
                       )}
-                      <span className="text-4xl font-black text-neutral-900">৳{selectedProduct.price.toLocaleString()}</span>
+                      <span className="text-5xl font-black text-neutral-900">TK {selectedProduct.price.toLocaleString()}</span>
                     </div>
                   </div>
 
@@ -1085,12 +1359,273 @@ export default function App() {
                     <ImageIcon className="h-4 w-4" />
                     Media
                   </TabsTrigger>
+                  <TabsTrigger value="homepage" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Homepage
+                  </TabsTrigger>
                 </>
               )}
             </TabsList>
           </div>
 
           <TabsContent value="shop" className="mt-0">
+            {selectedCategory === 'All' && searchQuery === '' && (
+              <div className="space-y-20 mb-20 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                {/* Highlight Section */}
+                <section>
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="space-y-1">
+                      <h2 className="text-2xl font-black text-neutral-900 tracking-tight uppercase">Premium Highlights</h2>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Curated by Liz Lifestyle</p>
+                    </div>
+                    <div className="h-[2px] flex-1 bg-neutral-100 mx-8 hidden md:block" />
+                    <div className="flex items-center gap-2">
+                      <div className="text-[9px] font-black uppercase text-neutral-400 mr-2">Rotating Selection</div>
+                      <div className="flex gap-1">
+                        {highlightItems.map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${i === currentHighlightIdx ? 'bg-neutral-900 w-4' : 'bg-neutral-200'}`} 
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    {/* Hero Rotating Item */}
+                    <div className="md:col-span-3">
+                      <AnimatePresence mode="wait">
+                        {(() => {
+                           const item = highlightItems[currentHighlightIdx];
+                           if (!item) return <div className="aspect-[21/9] bg-neutral-50 rounded-3xl border-2 border-dashed border-neutral-100 flex items-center justify-center">
+                             <p className="text-sm font-black text-neutral-300 uppercase tracking-widest">Select Highlight In Admin</p>
+                           </div>;
+                           
+                           return (
+                             <motion.div
+                               key={item.id}
+                               initial={{ opacity: 0, x: 20 }}
+                               animate={{ opacity: 1, x: 0 }}
+                               exit={{ opacity: 0, x: -20 }}
+                               className="relative aspect-[4/5] md:aspect-auto md:h-[500px] rounded-3xl overflow-hidden cursor-pointer group shadow-2xl bg-neutral-100"
+                               onClick={() => {
+                                 setSelectedProduct(item);
+                                 setActiveImageIdx(0);
+                               }}
+                             >
+                               <img src={item.image} alt="" className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
+                               <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
+                               <div className="absolute bottom-0 left-0 p-6 md:p-12 space-y-3 md:space-y-4 w-full">
+                                 <div className="inline-flex">
+                                    <span className="px-3 py-1 bg-white text-neutral-900 text-[10px] font-mono font-black uppercase tracking-widest rounded-full shadow-lg">
+                                      Exclusive Dress: {item.product_code}
+                                    </span>
+                                 </div>
+                                 <h3 className="text-2xl md:text-5xl font-black text-white uppercase tracking-tighter leading-tight md:leading-none">
+                                   {item.category}
+                                 </h3>
+                                 <p className="text-white/80 text-xs md:text-sm max-w-md line-clamp-2">
+                                   {item.description}
+                                 </p>
+                                 <div className="flex items-center gap-4 md:gap-6 pt-2 md:pt-4">
+                                   <div className="flex flex-col">
+                                     {item.original_price && item.original_price > item.price && (
+                                       <span className="text-sm md:text-base text-white/50 line-through font-bold">TK {item.original_price.toLocaleString()}</span>
+                                     )}
+                                     <p className="text-2xl md:text-5xl font-black text-white flex items-center gap-3">
+                                       TK {item.price.toLocaleString()}
+                                       {item.original_price && item.original_price > item.price && (
+                                         <span className="bg-red-500 text-white text-[11px] md:text-sm px-2.5 py-1 rounded-full font-black animate-pulse">
+                                           {Math.round(((item.original_price - item.price) / item.original_price) * 100)}% OFF
+                                         </span>
+                                       )}
+                                     </p>
+                                   </div>
+                                   <Button className="bg-white text-neutral-900 hover:bg-neutral-100 font-black rounded-xl px-6 md:px-8 h-10 md:h-12 uppercase tracking-widest text-[10px] md:text-xs">
+                                     View Details
+                                   </Button>
+                                 </div>
+                               </div>
+                               <div className="absolute top-8 right-8">
+                                  <Badge className="bg-white/10 backdrop-blur-md border-white/20 text-white font-black px-4 py-2 text-xs animate-pulse">
+                                    NOW TRENDING
+                                  </Badge>
+                               </div>
+                             </motion.div>
+                           )
+                        })()}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                      {highlightItems.filter((_, i) => i !== currentHighlightIdx).slice(0, 4).map((item) => {
+                         return (
+                           <motion.div 
+                             key={item.id}
+                             whileHover={{ y: -4 }}
+                             onClick={() => {
+                               setSelectedProduct(item);
+                               setActiveImageIdx(0);
+                             }}
+                             className="group relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
+                           >
+                             <img src={item.image} alt="" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                             <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                                <p className="text-[8px] font-mono font-black text-white/80 mb-1">{item.product_code}</p>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[10px] font-black text-white uppercase line-clamp-1">{item.category}</p>
+                                  <div className="text-right">
+                                    {item.original_price && item.original_price > item.price && (
+                                      <p className="text-[8px] text-white/50 line-through">TK {item.original_price}</p>
+                                    )}
+                                    <p className="text-[13px] font-black text-white">TK {item.price}</p>
+                                  </div>
+                                </div>
+                             </div>
+                           </motion.div>
+                         );
+                       })}
+                     </div>
+                  </div>
+                </section>
+
+                {/* In-Stock Collection Section */}
+                <section>
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="space-y-1">
+                      <h2 className="text-2xl font-black text-neutral-900 tracking-tight uppercase">
+                        Available Now
+                      </h2>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">All in-stock collections</p>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setSelectedCategory('All')}
+                      className="text-[10px] font-black uppercase tracking-widest hover:bg-neutral-900 hover:text-white transition-all gap-2"
+                    >
+                      Browse Catalog <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    {items
+                      .filter(i => i.inventory.some(inv => inv.quantity > 0))
+                      .sort((a, b) => (b.display_order || 0) - (a.display_order || 0))
+                      .map((item: any) => (
+                      <div 
+                        key={item.id} 
+                        className="group cursor-pointer space-y-4"
+                        onClick={() => {
+                          setSelectedProduct(item);
+                          setActiveImageIdx(0);
+                        }}
+                      >
+                        <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
+                          <img src={item.image} alt="" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                          <div className="absolute top-3 left-3 z-20">
+                            <span className="inline-block px-3 py-1 bg-neutral-900 text-white text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
+                              {item.product_code}
+                            </span>
+                          </div>
+                          <div className="absolute inset-0 border-[12px] border-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl" />
+                        </div>
+                        <div className="px-2">
+                          <div className="flex justify-between items-start mb-1">
+                             {item.product_code && <p className="text-[10px] font-mono font-black text-neutral-400 uppercase tracking-widest">{item.product_code}</p>}
+                             <div className="flex flex-col items-end">
+                               {item.original_price && item.original_price > item.price && (
+                                 <span className="text-[9px] text-neutral-400 line-through font-medium">TK {item.original_price.toLocaleString()}</span>
+                               )}
+                               <p className="text-lg font-black text-neutral-900">
+                                 TK {item.price.toLocaleString()}
+                                 {item.original_price && item.original_price > item.price && (
+                                   <span className="ml-1 text-[10px] text-red-500 font-black">
+                                     (-{Math.round(((item.original_price - item.price) / item.original_price) * 100)}%)
+                                   </span>
+                                 )}
+                               </p>
+                             </div>
+                          </div>
+                          <h4 className="text-sm font-bold text-neutral-900 line-clamp-1 group-hover:text-neutral-500 transition-colors uppercase">{item.category}</h4>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                
+                <div className="relative py-8">
+                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div className="w-full border-t border-neutral-100" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-white px-6 text-[10px] font-black uppercase tracking-[0.5em] text-neutral-300">Catalog Explorer</span>
+                  </div>
+                </div>
+
+                {/* Filter Bar */}
+                <div className="flex flex-col md:flex-row gap-4 mb-8 p-4 bg-neutral-50 rounded-2xl border border-neutral-100">
+                  <div className="flex-1 flex flex-wrap gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Price Range</label>
+                      <select 
+                        value={priceFilter}
+                        onChange={(e) => setPriceFilter(e.target.value as any)}
+                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                      >
+                        <option value="all">Any Price</option>
+                        <option value="under1000">Under TK 1,000</option>
+                        <option value="1000-3000">TK 1,000 - TK 3,000</option>
+                        <option value="over3000">Over TK 3,000</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Availability</label>
+                      <select 
+                        value={stockFilter}
+                        onChange={(e) => setStockFilter(e.target.value as any)}
+                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                      >
+                        <option value="all">All Items</option>
+                        <option value="instock">In Stock Only</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 ml-1">Sort By</label>
+                      <select 
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="h-10 px-3 py-1 bg-white border border-neutral-200 rounded-xl text-xs font-bold focus:ring-0 focus:border-neutral-900 transition-all outline-none"
+                      >
+                        <option value="newest">Latest Arrivals</option>
+                        <option value="priceLow">Price: Low to High</option>
+                        <option value="priceHigh">Price: High to Low</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-end">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => {
+                        setPriceFilter('all');
+                        setStockFilter('all');
+                        setSortBy('newest');
+                        setSearchQuery('');
+                        setSelectedCategory('All');
+                      }}
+                      className="text-[9px] font-black uppercase tracking-widest h-10 px-4 hover:bg-neutral-900 hover:text-white transition-all rounded-xl"
+                    >
+                      Clear Filters
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <AnimatePresence mode="popLayout">
                 {filteredItems.map((item) => (
@@ -1114,12 +1649,17 @@ export default function App() {
                           referrerPolicy="no-referrer"
                         />
                         <div className="absolute left-3 top-3 flex flex-col gap-2">
-                          <Badge className="bg-white/90 text-neutral-900 hover:bg-white shadow-sm">
+                          {item.product_code && (
+                            <div className="bg-neutral-900 text-white text-[10px] font-mono font-black px-2 py-1 rounded shadow-xl tracking-widest border border-white/20">
+                              CODE: {item.product_code}
+                            </div>
+                          )}
+                          <Badge className="bg-white/90 text-neutral-900 hover:bg-white shadow-sm font-bold uppercase tracking-widest text-[8px]">
                             {item.category}
                           </Badge>
                           {item.original_price && item.original_price > item.price && (
-                            <div className="bg-[#2C3E50] text-white text-[10px] font-bold px-2 py-1 rounded-sm shadow-sm w-fit">
-                              -{Math.round(((item.original_price - item.price) / item.original_price) * 100)}%
+                            <div className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded shadow-xl tracking-widest border border-white/20">
+                              {Math.round(((item.original_price - item.price) / item.original_price) * 100)}% OFF
                             </div>
                           )}
                         </div>
@@ -1129,19 +1669,19 @@ export default function App() {
                           <div className="flex-1">
                             <CardTitle className="text-base font-bold line-clamp-1">
                               {item.product_code && (
-                                <span className="text-[10px] text-neutral-400 font-mono mr-1.5 uppercase">
+                                <span className="inline-block px-1.5 py-0.5 bg-neutral-900 text-white text-[9px] font-mono font-black mr-2 uppercase rounded-sm">
                                   {item.product_code}
                                 </span>
                               )}
-                              {item.name}
+                              {item.category}
                             </CardTitle>
                             <CardDescription className="line-clamp-1 text-xs">{item.description}</CardDescription>
                           </div>
                           <div className="flex flex-col items-end">
                             {item.original_price && item.original_price > item.price && (
-                              <span className="text-[10px] text-neutral-400 line-through font-medium">৳{item.original_price.toLocaleString()}</span>
+                              <span className="text-[10px] text-neutral-400 line-through font-medium">TK {item.original_price.toLocaleString()}</span>
                             )}
-                            <span className="text-base font-black text-neutral-900">৳{item.price.toLocaleString()}</span>
+                            <span className="text-xl font-black text-neutral-900">TK {item.price.toLocaleString()}</span>
                           </div>
                         </div>
                       </CardHeader>
@@ -1176,7 +1716,8 @@ export default function App() {
           </TabsContent>
 
           {isAdmin && (
-            <TabsContent value="admin" className="mt-0">
+            <>
+              <TabsContent value="admin" className="mt-0">
               <Card className="border-none shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
@@ -1184,12 +1725,47 @@ export default function App() {
                     <CardDescription>Manage your product catalog and stock levels.</CardDescription>
                   </div>
                   <div className="flex gap-2">
+                    {selectedProductIds.length > 0 && (
+                      <Button 
+                        variant="destructive" 
+                        onClick={() => setShowBulkDeleteProductsConfirm(true)}
+                        disabled={isBulkDeleting}
+                        className="flex items-center gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete ({selectedProductIds.length})
+                      </Button>
+                    )}
                     {items.length === 0 && (
                       <Button variant="outline" onClick={seedInitialData} className="flex items-center gap-2 border-dashed">
                         <Sparkles className="h-4 w-4" />
                         Seed Sample Data
                       </Button>
                     )}
+                    <Button variant="outline" onClick={async () => {
+                      try {
+                        const res = await fetch('/api/send-email', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            to: 'lizlifestylebd@gmail.com',
+                            subject: 'Test Email Configuration',
+                            html: '<p>If you see this, your Resend config is working!</p>'
+                          })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          alert('Success! Check lizlifestylebd@gmail.com');
+                        } else {
+                          alert(`Failed: ${data.tip || data.error}`);
+                        }
+                      } catch (e) {
+                        alert('Connection Error');
+                      }
+                    }} className="flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      Test Email
+                    </Button>
                     <Button variant="outline" onClick={exportInventoryExcel} className="flex items-center gap-2">
                       <Download className="h-4 w-4" />
                       Export Excel
@@ -1230,15 +1806,6 @@ export default function App() {
                               </motion.div>
                             )}
                             <div className="space-y-2">
-                              <label className="text-xs font-bold uppercase text-neutral-500">Product Name</label>
-                              <Input 
-                                required
-                                value={newItemForm.name}
-                                onChange={(e) => setNewItemForm({...newItemForm, name: e.target.value})}
-                                placeholder="e.g. Premium Silk Shirt"
-                              />
-                            </div>
-                            <div className="space-y-2">
                               <label className="text-xs font-bold uppercase text-neutral-500">Dress Code (Product Code)</label>
                               <Input 
                                 value={newItemForm.product_code}
@@ -1273,7 +1840,7 @@ export default function App() {
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Sale Price (Discount Price) (৳)</label>
+                                <label className="text-xs font-bold uppercase text-neutral-500">Sale Price (Discount Price) (TK)</label>
                                 <Input 
                                   required
                                   type="number"
@@ -1283,7 +1850,7 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Regular Price (Original Price) (৳)</label>
+                                <label className="text-xs font-bold uppercase text-neutral-500">Regular Price (Original Price) (TK)</label>
                                 <Input 
                                   type="number"
                                   value={newItemForm.original_price}
@@ -1408,15 +1975,31 @@ export default function App() {
                   <div className="rounded-md border overflow-x-auto">
                     <div className="min-w-[800px]">
                       <div className="grid grid-cols-12 bg-neutral-50 p-4 text-xs font-bold uppercase tracking-wider text-neutral-500">
+                        <div className="col-span-1 flex items-center justify-center">
+                          <input 
+                            type="checkbox" 
+                            checked={items.length > 0 && selectedProductIds.length === items.length}
+                            onChange={toggleSelectAllProducts}
+                            className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                          />
+                        </div>
                         <div className="col-span-2">Product</div>
-                        <div className="col-span-2">Price (৳)</div>
-                        <div className="col-span-5 text-center">Stock by Size</div>
+                        <div className="col-span-2">Price (TK)</div>
+                        <div className="col-span-4 text-center">Stock by Size</div>
                         <div className="col-span-1 text-center">Order</div>
                         <div className="col-span-2 text-right">Actions</div>
                       </div>
-                      <div className="divide-y">
+                      <div className="divide-y text-xs">
                         {items.map((item) => (
-                          <div key={item.id} className="grid grid-cols-12 items-center p-4 transition-colors hover:bg-neutral-50/50">
+                          <div key={item.id} className={`grid grid-cols-12 items-center p-4 transition-colors hover:bg-neutral-50/50 ${selectedProductIds.includes(item.id) ? 'bg-neutral-50' : ''}`}>
+                            <div className="col-span-1 flex items-center justify-center">
+                              <input 
+                                type="checkbox" 
+                                checked={selectedProductIds.includes(item.id)}
+                                onChange={() => toggleSelectProduct(item.id)}
+                                className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                              />
+                            </div>
                             <div className="col-span-2 flex items-center gap-3">
                               <img src={item.image} alt="" className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
                               <div className="min-w-0">
@@ -1502,11 +2085,9 @@ export default function App() {
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
-          )}
+              </TabsContent>
 
-          {isAdmin && (
-            <TabsContent value="media" className="mt-0">
+              <TabsContent value="media" className="mt-0">
               <Card className="border-none shadow-sm">
                 <CardHeader>
                   <CardTitle>Product Media Library</CardTitle>
@@ -1585,21 +2166,91 @@ export default function App() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-          )}
+              </TabsContent>
 
-          {isAdmin && (
-            <TabsContent value="orders" className="mt-0">
+              <TabsContent value="homepage" className="mt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <Card className="border-none shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-amber-500" />
+                      Highlight Slots (15)
+                    </CardTitle>
+                    <CardDescription>Select up to 15 products to showcase in the premium highlights section.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((slotIdx) => {
+                        const selectedId = homepageSettings.highlight_product_ids?.[slotIdx];
+                        const product = items.find(i => i.id === selectedId);
+                        
+                        return (
+                          <div key={slotIdx} className="flex items-center gap-4 p-3 border rounded-xl bg-neutral-50/50">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-neutral-900 text-white text-[10px] font-black">
+                              {slotIdx + 1}
+                            </div>
+                            <div className="flex-1">
+                              <select 
+                                value={selectedId || ''}
+                                onChange={async (e) => {
+                                  const newIds = [...(homepageSettings.highlight_product_ids || [])];
+                                  newIds[slotIdx] = e.target.value;
+                                  const settingsRef = doc(db, 'settings', 'homepage');
+                                  try {
+                                    await updateDoc(settingsRef, { highlight_product_ids: newIds });
+                                  } catch {
+                                    await setDoc(settingsRef, { 
+                                      highlight_product_ids: newIds,
+                                      featured_category: homepageSettings.featured_category || 'Coco'
+                                    });
+                                  }
+                                }}
+                                className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold h-10"
+                              >
+                                <option value="">Select a Product...</option>
+                                {sequentialItems.map(item => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.product_code ? `[${item.product_code}] ` : ''}{item.category}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {product && (
+                              <img src={product.image} className="w-10 h-10 object-cover rounded-md" alt="" referrerPolicy="no-referrer" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              </TabsContent>
+
+              <TabsContent value="orders" className="mt-0">
               <Card className="border-none shadow-sm">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
                     <CardTitle>Order Management</CardTitle>
                     <CardDescription>Track and process customer orders.</CardDescription>
                   </div>
-                  <Button variant="outline" onClick={exportOrdersExcel} className="flex items-center gap-2">
-                    <Download className="h-4 w-4" />
-                    Export Excel
-                  </Button>
+                  <div className="flex gap-2">
+                    {selectedOrderIds.length > 0 && (
+                      <Button 
+                        variant="destructive" 
+                        onClick={() => setShowBulkDeleteOrdersConfirm(true)}
+                        disabled={isBulkDeleting}
+                        className="flex items-center gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete ({selectedOrderIds.length})
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={exportOrdersExcel} className="flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export Excel
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
@@ -1613,6 +2264,14 @@ export default function App() {
                         <table className="w-full text-left text-sm">
                           <thead>
                             <tr className="border-b text-xs font-bold uppercase text-neutral-500">
+                              <th className="pb-4 pr-4 w-10">
+                                <input 
+                                  type="checkbox" 
+                                  checked={orders.length > 0 && selectedOrderIds.length === orders.length}
+                                  onChange={toggleSelectAllOrders}
+                                  className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                                />
+                              </th>
                               <th className="pb-4 pr-4">Order ID</th>
                               <th className="pb-4 pr-4">Customer</th>
                               <th className="pb-4 pr-4">Items</th>
@@ -1624,7 +2283,15 @@ export default function App() {
                           </thead>
                           <tbody>
                             {orders.map((order) => (
-                              <tr key={order.id} className={`border-b last:border-0 hover:bg-neutral-50/50 ${order.id > lastCheckedOrderId ? 'bg-blue-50/30' : ''}`}>
+                              <tr key={order.id} className={`border-b last:border-0 hover:bg-neutral-50/50 ${selectedOrderIds.includes(order.id) ? 'bg-neutral-50' : ''} ${order.id > lastCheckedOrderId ? 'bg-blue-50/30' : ''}`}>
+                                <td className="py-4 pr-4">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={selectedOrderIds.includes(order.id)}
+                                    onChange={() => toggleSelectOrder(order.id)}
+                                    className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                                  />
+                                </td>
                                 <td className="py-4 pr-4 font-mono font-bold">#{order.id}</td>
                                 <td className="py-4 pr-4">
                                   <div className="font-bold">{order.customer_name}</div>
@@ -1634,7 +2301,7 @@ export default function App() {
                                 <td className="py-4 pr-4">
                                   <div className="flex -space-x-2">
                                     {order.items.map((item, idx) => (
-                                      <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`${item.name} (${item.size}) x${item.quantity}`}>
+                                      <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`[${item.product_code || 'N/A'}] ${item.category} (${item.size}) x${item.quantity}`}>
                                         <img src={item.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                                       </div>
                                     ))}
@@ -1646,8 +2313,8 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="py-4 pr-4">
-                                  <div className="font-bold">৳{order.total_amount}</div>
-                                  <div className="text-[10px] text-neutral-500">Charge: ৳{order.delivery_charge}</div>
+                                  <div className="font-bold">TK {order.total_amount}</div>
+                                  <div className="text-[10px] text-neutral-500">Charge: TK {order.delivery_charge}</div>
                                 </td>
                                 <td className="py-4 pr-4">
                                   <select 
@@ -1670,7 +2337,7 @@ export default function App() {
                                 <td className="py-4 pr-4 text-neutral-500 text-xs">
                                   {new Date(order.created_at).toLocaleDateString()}
                                 </td>
-                                <td className="py-4 text-right">
+                                <td className="py-4 text-right flex items-center justify-end gap-1">
                                   <Button 
                                     variant="ghost" 
                                     size="icon" 
@@ -1679,6 +2346,15 @@ export default function App() {
                                     title="Download Invoice"
                                   >
                                     <FileText className="h-4 w-4" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-neutral-400 hover:text-red-600"
+                                    onClick={() => setConfirmDeleteOrderId(order.id)}
+                                    title="Delete Order"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </td>
                               </tr>
@@ -1691,7 +2367,8 @@ export default function App() {
                 </CardContent>
               </Card>
             </TabsContent>
-          )}
+          </>
+        )}
         </Tabs>
       )}
       </main>
@@ -1726,6 +2403,116 @@ export default function App() {
                 </Button>
                 <Button className="flex-1 bg-red-600 text-white hover:bg-red-700" onClick={() => handleDeleteItem(confirmDeleteId)}>
                   Delete
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {confirmDeleteOrderId && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setConfirmDeleteOrderId(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold">Delete Order?</h2>
+                <p className="text-sm text-neutral-500">This action will permanently delete the order and restore product stock.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setConfirmDeleteOrderId(null)}>
+                  Cancel
+                </Button>
+                <Button className="flex-1 bg-red-600 text-white hover:bg-red-700" onClick={() => handleDeleteOrder(confirmDeleteOrderId)}>
+                  Restore Stock & Delete
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showBulkDeleteProductsConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBulkDeleteProductsConfirm(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold">Delete {selectedProductIds.length} Products?</h2>
+                <p className="text-sm text-neutral-500">Are you sure? This action cannot be undone.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setShowBulkDeleteProductsConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1 bg-red-600 text-white hover:bg-red-700 flex items-center justify-center gap-2" 
+                  onClick={handleBulkDeleteProducts}
+                  disabled={isBulkDeleting}
+                >
+                  {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete All'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showBulkDeleteOrdersConfirm && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBulkDeleteOrdersConfirm(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <div className="mb-6 text-center">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold">Delete {selectedOrderIds.length} Orders?</h2>
+                <p className="text-sm text-neutral-500">This will restore stock for all items in these orders. Are you sure?</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setShowBulkDeleteOrdersConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1 bg-red-600 text-white hover:bg-red-700 flex items-center justify-center gap-2" 
+                  onClick={handleBulkDeleteOrders}
+                  disabled={isBulkDeleting}
+                >
+                  {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Restore & Delete'}
                 </Button>
               </div>
             </motion.div>
@@ -1828,9 +2615,9 @@ export default function App() {
                               <div className="flex justify-between">
                                 <h3 className="font-semibold">
                                   {item.product_code && <span className="text-[10px] font-mono font-bold text-neutral-400 mr-1 uppercase">{item.product_code}</span>}
-                                  {item.name}
+                                  {item.category}
                                 </h3>
-                                <p className="font-bold">৳{item.price * item.cartQuantity}</p>
+                                <p className="text-lg font-black text-neutral-900">TK {(item.price * item.cartQuantity).toLocaleString()}</p>
                               </div>
                               <p className="text-xs text-neutral-500">Size: {item.selectedSize}</p>
                             </div>
@@ -1856,9 +2643,9 @@ export default function App() {
                 </ScrollArea>
 
                 <div className="border-t p-6 space-y-4">
-                  <div className="flex items-center justify-between text-lg font-bold">
+                  <div className="flex items-center justify-between text-2xl font-black text-neutral-900">
                     <span>Total</span>
-                    <span>৳{totalCartPrice}</span>
+                    <span>TK {totalCartPrice.toLocaleString()}</span>
                   </div>
                   <Button 
                     className="w-full h-12 bg-neutral-900 text-white hover:bg-neutral-800" 
@@ -1951,7 +2738,7 @@ export default function App() {
                     required
                     value={checkoutForm.customer_name}
                     onChange={(e) => setCheckoutForm({ ...checkoutForm, customer_name: e.target.value })}
-                    placeholder="John Doe"
+                    placeholder="Miss Rani"
                   />
                 </div>
                 <div className="space-y-2">
@@ -1989,7 +2776,7 @@ export default function App() {
                     >
                       <div className="text-left">
                         <p className="text-sm font-bold">Inside Dhaka</p>
-                        <p className="text-xs text-neutral-500">৳50 charge</p>
+                        <p className="text-xs text-neutral-500">TK 80 charge</p>
                       </div>
                       {checkoutForm.delivery_location === 'inside' && <CheckCircle2 className="h-5 w-5 text-neutral-900" />}
                     </button>
@@ -2004,7 +2791,7 @@ export default function App() {
                     >
                       <div className="text-left">
                         <p className="text-sm font-bold">Outside Dhaka</p>
-                        <p className="text-xs text-neutral-500">৳110 charge</p>
+                        <p className="text-xs text-neutral-500">TK 150 charge</p>
                       </div>
                       {checkoutForm.delivery_location === 'outside' && <CheckCircle2 className="h-5 w-5 text-neutral-900" />}
                     </button>
@@ -2014,15 +2801,15 @@ export default function App() {
                 <div className="mt-6 space-y-2 border-t pt-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-500">Subtotal</span>
-                    <span>৳{totalCartPrice}</span>
+                    <span>TK {totalCartPrice}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-neutral-500">Delivery</span>
-                    <span>৳{deliveryCharge}</span>
+                    <span>TK {deliveryCharge}</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold">
                     <span>Total</span>
-                    <span>৳{finalTotal}</span>
+                    <span>TK {finalTotal}</span>
                   </div>
                 </div>
 

@@ -57,6 +57,16 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["customer_name", "phone", "address", "items", "total_amount"]
+    },
+    "HomepageSettings": {
+      "title": "Homepage Settings",
+      "description": "Configuration for homepage highlights and featured categories",
+      "type": "object",
+      "properties": {
+        "highlight_product_ids": { "type": "array", "items": { "type": "string" } },
+        "featured_product_ids": { "type": "array", "items": { "type": "string" } },
+        "featured_category": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -67,6 +77,10 @@
     "orders": {
       "schema": "Order",
       "description": "Collection of customer orders"
+    },
+    "settings": {
+      "schema": "HomepageSettings",
+      "description": "App-wide configuration settings"
     }
   }
 }

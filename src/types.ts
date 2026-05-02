@@ -24,6 +24,7 @@ export interface CartItem extends ClothingItem {
 export interface OrderItem {
   id: string;
   name: string;
+  product_code?: string;
   size: string;
   quantity: number;
   price: number;
@@ -41,4 +42,10 @@ export interface Order {
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   created_at: string;
   items: OrderItem[];
+}
+
+export interface HomepageSettings {
+  highlight_product_ids: string[];
+  featured_product_ids?: string[];
+  featured_category: string;
 }
