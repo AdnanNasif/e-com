@@ -872,22 +872,43 @@ export default function App() {
                           exit={{ opacity: 0 }}
                           className="h-full w-full bg-neutral-900 flex items-center justify-center relative"
                         >
-                          {selectedProduct.video_url.includes('youtube.com') || selectedProduct.video_url.includes('youtu.be') ? (
-                            <iframe 
-                              src={selectedProduct.video_url.replace('watch?v=', 'embed/').split('&')[0]} 
-                              className="w-full h-full"
-                              allowFullScreen
-                            />
-                          ) : (
-                            <video 
-                              src={selectedProduct.video_url} 
-                              controls 
-                              className="max-h-full max-w-full"
-                              autoPlay
-                              muted
-                              loop
-                            />
-                          )}
+                          {(() => {
+                            const url = selectedProduct.video_url;
+                            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                              const embedUrl = url.replace('watch?v=', 'embed/').split('&')[0];
+                              return (
+                                <iframe 
+                                  src={embedUrl} 
+                                  className="w-full h-full"
+                                  allowFullScreen
+                                />
+                              );
+                            } else if (url.includes('facebook.com') || url.includes('fb.watch')) {
+                              const embedUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&t=0`;
+                              return (
+                                <iframe 
+                                  src={embedUrl} 
+                                  className="w-full h-full"
+                                  style={{ border: 'none', overflow: 'hidden' }}
+                                  scrolling="no"
+                                  frameBorder="0"
+                                  allowFullScreen={true}
+                                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                                />
+                              );
+                            } else {
+                              return (
+                                <video 
+                                  src={url} 
+                                  controls 
+                                  className="max-h-full max-w-full"
+                                  autoPlay
+                                  muted
+                                  loop
+                                />
+                              );
+                            }
+                          })()}
                         </motion.div>
                       ) : (
                         <motion.img
