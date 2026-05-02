@@ -78,6 +78,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
     name: '',
+    product_code: '',
     category: '',
     price: '',
     original_price: '',
@@ -126,7 +127,9 @@ export default function App() {
     const cats = new Set(items.map(i => i.category));
     const subCats = Object.values(CATEGORY_HIERARCHY).flat() as string[];
     subCats.forEach(sc => cats.add(sc));
-    return ['All', ...Array.from(cats)].filter(c => c !== '');
+    // Deduplicate 'All' by putting it in the Set first
+    const finalSet = new Set(['All', ...Array.from(cats)]);
+    return Array.from(finalSet).filter(c => c !== '');
   }, [items]);
 
   const mainCategories = useMemo(() => {
@@ -137,7 +140,7 @@ export default function App() {
     
     const filteredCats = Array.from(cats).filter((c: string) => !subCats.includes(c));
     
-    // Ensure hierarchy parents are included even if no items have that exact category
+    // Use a Set to ensure 'All' is only present once
     const finalCats = new Set(['All', ...filteredCats, ...hierarchyParents]);
     
     return Array.from(finalCats);
@@ -400,8 +403,26 @@ export default function App() {
     try {
       setSaveStatus({ type: 'info', message: 'Saving product...' });
       
+      let productCode = newItemForm.product_code.trim();
+      
+      // Auto-generate product code if empty
+      if (!productCode && !editingItemId) {
+        let maxNum = 0;
+        items.forEach(item => {
+          if (item.product_code) {
+            const match = item.product_code.match(/\d+$/);
+            if (match) {
+              const num = parseInt(match[0]);
+              if (num > maxNum) maxNum = num;
+            }
+          }
+        });
+        productCode = `LIZ-${(maxNum + 1).toString().padStart(3, '0')}`;
+      }
+      
       const payload = {
         name: newItemForm.name,
+        product_code: productCode,
         category: newItemForm.category,
         price: parseFloat(newItemForm.price),
         original_price: newItemForm.original_price ? parseFloat(newItemForm.original_price) : null,
@@ -435,6 +456,7 @@ export default function App() {
           price: '',
           original_price: '',
           description: '',
+          product_code: '',
           image: '',
           video_url: '',
           display_order: '0',
@@ -488,6 +510,7 @@ export default function App() {
     setEditingItemId(item.id);
     setNewItemForm({
       name: item.name,
+      product_code: item.product_code || '',
       category: item.category,
       price: item.price.toString(),
       original_price: item.original_price?.toString() || '',
@@ -916,6 +939,11 @@ export default function App() {
                 <div className="flex flex-col p-8 md:p-16 lg:p-24 bg-white">
                   <div className="mb-12">
                     <h2 className="mb-6 text-4xl md:text-5xl font-black text-neutral-900 leading-[1.1] tracking-tight">
+                      {selectedProduct.product_code && (
+                        <span className="block text-sm font-mono text-neutral-400 mb-2 uppercase tracking-widest">
+                          {selectedProduct.product_code}
+                        </span>
+                      )}
                       {selectedProduct.name}
                     </h2>
                     <div className="flex items-center gap-8">
@@ -1078,7 +1106,14 @@ export default function App() {
                       <CardHeader className="p-4 pb-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
-                            <CardTitle className="text-base font-bold line-clamp-1">{item.name}</CardTitle>
+                            <CardTitle className="text-base font-bold line-clamp-1">
+                              {item.product_code && (
+                                <span className="text-[10px] text-neutral-400 font-mono mr-1.5 uppercase">
+                                  {item.product_code}
+                                </span>
+                              )}
+                              {item.name}
+                            </CardTitle>
                             <CardDescription className="line-clamp-1 text-xs">{item.description}</CardDescription>
                           </div>
                           <div className="flex flex-col items-end">
@@ -1182,6 +1217,14 @@ export default function App() {
                                 placeholder="e.g. Premium Silk Shirt"
                               />
                             </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold uppercase text-neutral-500">Dress Code (Product Code)</label>
+                              <Input 
+                                value={newItemForm.product_code}
+                                onChange={(e) => setNewItemForm({...newItemForm, product_code: e.target.value})}
+                                placeholder="e.g. LIZ-2024-001"
+                              />
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase text-neutral-500">Category / Collection</label>
@@ -1209,7 +1252,7 @@ export default function App() {
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Price (৳)</label>
+                                <label className="text-xs font-bold uppercase text-neutral-500">Sale Price (Discount Price) (৳)</label>
                                 <Input 
                                   required
                                   type="number"
@@ -1219,7 +1262,7 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Original Price (৳) (Optional)</label>
+                                <label className="text-xs font-bold uppercase text-neutral-500">Regular Price (Original Price) (৳)</label>
                                 <Input 
                                   type="number"
                                   value={newItemForm.original_price}
@@ -1356,7 +1399,14 @@ export default function App() {
                             <div className="col-span-2 flex items-center gap-3">
                               <img src={item.image} alt="" className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
                               <div className="min-w-0">
-                                <p className="font-semibold text-sm truncate">{item.name}</p>
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  {item.product_code && (
+                                    <span className="text-[9px] font-mono font-bold text-neutral-900 bg-neutral-100 px-1 rounded uppercase">
+                                      {item.product_code}
+                                    </span>
+                                  )}
+                                  <p className="font-semibold text-sm truncate">{item.name}</p>
+                                </div>
                                 <p className="text-[10px] text-neutral-400 truncate">{item.category}</p>
                               </div>
                             </div>
@@ -1755,7 +1805,10 @@ export default function App() {
                           <div className="flex flex-1 flex-col justify-between">
                             <div>
                               <div className="flex justify-between">
-                                <h3 className="font-semibold">{item.name}</h3>
+                                <h3 className="font-semibold">
+                                  {item.product_code && <span className="text-[10px] font-mono font-bold text-neutral-400 mr-1 uppercase">{item.product_code}</span>}
+                                  {item.name}
+                                </h3>
                                 <p className="font-bold">৳{item.price * item.cartQuantity}</p>
                               </div>
                               <p className="text-xs text-neutral-500">Size: {item.selectedSize}</p>

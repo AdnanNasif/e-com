@@ -19,7 +19,8 @@ service cloud.firestore {
       return data.keys().hasAll(['name', 'price', 'category']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.price is number && data.price >= 0 &&
-             data.category is string;
+             data.category is string &&
+             (!data.keys().contains('product_code') || data.product_code is string);
     }
 
     function isInventoryUpdate() {

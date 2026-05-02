@@ -1,6 +1,7 @@
 export interface ClothingItem {
   id: string;
   name: string;
+  product_code?: string;
   category: string;
   price: number;
   original_price?: number;
