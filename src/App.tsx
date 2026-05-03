@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, FormEvent } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -36,6 +37,10 @@ import {
   Download,
   FileText,
   Mail,
+  MapPin,
+  Phone,
+  Instagram,
+  Facebook,
   Sun,
   Moon
 } from 'lucide-react';
@@ -71,6 +76,10 @@ import {
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 export default function App() {
+  const navigate = useNavigate();
+  const { category: urlCategory, productId: urlProductId } = useParams();
+  const location = useLocation();
+
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -110,6 +119,83 @@ export default function App() {
   });
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ClothingItem | null>(null);
+
+  // Sync state FROM URL
+  useEffect(() => {
+    // Determine where we are based on path
+    const path = location.pathname;
+    
+    if (path === '/') {
+      setSelectedCategory('All');
+      setSelectedProduct(null);
+    } else if (path.startsWith('/category/')) {
+      const cat = decodeURIComponent(path.split('/category/')[1]);
+      setSelectedCategory(cat);
+      setSelectedProduct(null);
+    } else if (path.startsWith('/product/')) {
+      const prodId = path.split('/product/')[1];
+      if (items.length > 0) {
+        const item = items.find(i => i.id === prodId);
+        if (item) {
+          setSelectedProduct(item);
+        }
+      }
+    }
+  }, [location.pathname, items]);
+
+  // Dynamic Page Title & Meta for better SEO
+  useEffect(() => {
+    let title = "Liz Lifestyle | Premium Fashion & Elegant Apparel";
+    let metaDesc = "Shop the latest in premium fashion at Liz Lifestyle. Quality and elegance in every thread.";
+
+    if (selectedProduct) {
+      title = `${selectedProduct.category} | ${selectedProduct.product_code} - Liz Lifestyle`;
+      metaDesc = selectedProduct.description.substring(0, 160);
+    } else if (selectedCategory !== 'All') {
+      title = `${selectedCategory} Collection - Liz Lifestyle`;
+      metaDesc = `Discover the exclusive ${selectedCategory} collection at Liz Lifestyle. Elegance in every thread.`;
+    }
+
+    document.title = title;
+    const metaTag = document.querySelector('meta[name="description"]');
+    if (metaTag) {
+      metaTag.setAttribute('content', metaDesc);
+    }
+    
+    // Also update OG tags for some crawlers that might read it after JS
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', title);
+    
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) ogDesc.setAttribute('content', metaDesc);
+
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) ogUrl.setAttribute('content', window.location.href);
+  }, [selectedProduct, selectedCategory, location.pathname]);
+
+  // Helper navigating functions
+  const goToCategory = (cat: string) => {
+    if (cat === 'All') {
+      navigate('/');
+    } else {
+      navigate(`/category/${encodeURIComponent(cat)}`);
+    }
+    setIsMenuOpen(false);
+  };
+
+  const goToProduct = (item: ClothingItem | null) => {
+    if (item) {
+      navigate(`/product/${item.id}`);
+    } else {
+      // If we were in a category, go back to it, otherwise home
+      if (selectedCategory !== 'All') {
+        navigate(`/category/${encodeURIComponent(selectedCategory)}`);
+      } else {
+        navigate('/');
+      }
+    }
+  };
+
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -938,8 +1024,7 @@ export default function App() {
               <Menu className="h-7 w-7 text-neutral-900 dark:text-foreground" />
             </Button>
             <div className="flex items-center gap-3 group cursor-pointer" onClick={() => {
-              setSelectedCategory('All');
-              setSelectedProduct(null);
+              goToCategory('All');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-[0_8px_20px_-6px_rgba(0,0,0,0.1)] transition-all duration-500 group-hover:scale-110">
@@ -1037,9 +1122,7 @@ export default function App() {
             >
               <div className="mb-8 flex items-center justify-between">
                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => {
-                  setSelectedCategory('All');
-                  setSelectedProduct(null);
-                  setIsMenuOpen(false);
+                  goToCategory('All');
                 }}>
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-lg">
                     <img 
@@ -1077,9 +1160,7 @@ export default function App() {
                         <div key={cat} className="space-y-1">
                           <button
                             onClick={() => {
-                              setSelectedCategory(cat);
-                              setSelectedProduct(null);
-                              if (!hasSub) setIsMenuOpen(false);
+                              goToCategory(cat);
                             }}
                             className={`w-full flex items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-all ${
                               isSelectedOrChild
@@ -1100,9 +1181,7 @@ export default function App() {
                                 <button
                                   key={sub}
                                   onClick={() => {
-                                    setSelectedCategory(sub);
-                                    setSelectedProduct(null);
-                                    setIsMenuOpen(false);
+                                    goToCategory(sub);
                                   }}
                                   className={`flex items-center justify-between rounded-lg px-4 py-2 text-xs font-medium transition-all ${
                                     selectedCategory === sub 
@@ -1154,7 +1233,7 @@ export default function App() {
                   variant="ghost" 
                   size="sm" 
                   className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 transition-colors font-bold"
-                  onClick={() => setSelectedProduct(null)}
+                  onClick={() => goToProduct(null)}
                 >
                   <ChevronLeft className="h-5 w-5" />
                   Back to Shop
@@ -1319,8 +1398,7 @@ export default function App() {
                       <span className="font-black text-neutral-900 uppercase tracking-[0.2em] text-[12px]">Category:</span>
                       <button 
                         onClick={() => {
-                          setSelectedCategory(selectedProduct.category);
-                          setSelectedProduct(null);
+                          goToCategory(selectedProduct.category);
                         }}
                         className="text-neutral-400 hover:text-neutral-900 transition-colors underline underline-offset-8 decoration-neutral-100 hover:decoration-neutral-900"
                       >
@@ -1463,10 +1541,10 @@ export default function App() {
                                animate={{ opacity: 1, x: 0 }}
                                exit={{ opacity: 0, x: -20 }}
                                className="relative aspect-[4/5] md:aspect-auto md:h-[500px] rounded-3xl overflow-hidden cursor-pointer group shadow-2xl bg-neutral-100"
-                               onClick={() => {
-                                 setSelectedProduct(item);
-                                 setActiveImageIdx(0);
-                               }}
+                              onClick={() => {
+                                goToProduct(item);
+                                setActiveImageIdx(0);
+                              }}
                              >
                                <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
                                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
@@ -1519,7 +1597,7 @@ export default function App() {
                              key={item.id}
                              whileHover={{ y: -4 }}
                              onClick={() => {
-                               setSelectedProduct(item);
+                               goToProduct(item);
                                setActiveImageIdx(0);
                              }}
                              className="group relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
@@ -1572,7 +1650,7 @@ export default function App() {
                         key={item.id} 
                         className="group cursor-pointer space-y-4"
                         onClick={() => {
-                          setSelectedProduct(item);
+                          goToProduct(item);
                           setActiveImageIdx(0);
                         }}
                       >
@@ -1692,7 +1770,7 @@ export default function App() {
                     transition={{ duration: 0.2 }}
                   >
                     <Card className="group overflow-hidden border-none shadow-sm transition-all hover:shadow-md cursor-pointer" onClick={() => {
-                      setSelectedProduct(item);
+                      goToProduct(item);
                       setActiveImageIdx(0);
                     }}>
                       <div className="relative aspect-[4/5] overflow-hidden bg-neutral-50">
@@ -2201,7 +2279,7 @@ export default function App() {
                               onClick={() => {
                                 const item = items.find(it => it.id === itemId);
                                 if (item) {
-                                  setSelectedProduct(item);
+                                  goToProduct(item);
                                   if (type === 'image') setActiveImageIdx(idx);
                                 }
                               }}
@@ -2426,6 +2504,103 @@ export default function App() {
         </Tabs>
       )}
       </main>
+
+      {/* Footer */}
+      <footer className="bg-neutral-900 dark:bg-neutral-950 text-white pt-20 pb-10 border-t border-neutral-800">
+        <div className="container mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden bg-white">
+                  <img 
+                    src="/logo.png" 
+                    alt="Liz Lifestyle" 
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
+                    }}
+                  />
+                </div>
+                <h2 className="text-xl font-black tracking-tight">Liz Lifestyle</h2>
+              </div>
+              <p className="text-neutral-400 text-sm leading-relaxed">
+                Elegance in every thread. Curating the finest collections for the modern lifestyle.
+              </p>
+              <div className="flex gap-4">
+                <a 
+                  href="https://www.instagram.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800/50 hover:bg-neutral-800 text-white transition-all"
+                >
+                  <Instagram className="h-5 w-5" />
+                </a>
+                <a 
+                  href="https://www.facebook.com/lizlifestylebd/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800/50 hover:bg-neutral-800 text-white transition-all"
+                >
+                  <Facebook className="h-5 w-5" />
+                </a>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Store Collections</h3>
+              <ul className="space-y-4 text-sm font-medium">
+                <li><button onClick={() => goToCategory('All')} className="text-neutral-400 hover:text-white transition-colors">Digital Catalog</button></li>
+                <li><button onClick={() => goToCategory('Coco')} className="text-neutral-400 hover:text-white transition-colors">Coco Series</button></li>
+                <li><button onClick={() => goToCategory('Lark')} className="text-neutral-400 hover:text-white transition-colors">Lark Premium</button></li>
+                <li><button onClick={() => goToCategory('New Arrival')} className="text-neutral-400 hover:text-white transition-colors">Latest Releases</button></li>
+              </ul>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Get in Touch</h3>
+              <ul className="space-y-4 text-sm">
+                <li className="flex items-start gap-3">
+                  <MapPin className="h-5 w-5 text-neutral-500 mt-0.5" />
+                  <span className="text-neutral-400">722/3 West Kazipara, Mirpur, Dhaka</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Phone className="h-5 w-5 text-neutral-500" />
+                  <a href="tel:01714569998" className="text-neutral-400 hover:text-white transition-colors">01714569998</a>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Mail className="h-5 w-5 text-neutral-500" />
+                  <a href="mailto:lizlifestylebd@gmail.com" className="text-neutral-400 hover:text-white transition-colors">lizlifestylebd@gmail.com</a>
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Visit Our Store</h3>
+              <div className="rounded-2xl overflow-hidden h-48 w-full border border-neutral-800 shadow-2xl relative group">
+                <iframe 
+                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3651.1064235445253!2d90.36863077602334!3d23.796937286987146!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3755c0c97699478f%3A0xc3f60f644e590059!2sWest%20Kazipara%2C%20Dhaka!5e0!3m2!1sen!2sbd!4v1714745582386!5m2!1sen!2sbd" 
+                  width="100%" 
+                  height="100%" 
+                  style={{ border: 0 }} 
+                  allowFullScreen 
+                  loading="lazy" 
+                  referrerPolicy="no-referrer-when-downgrade"
+                  className="grayscale invert opacity-60 contrast-125 transition-all duration-700 group-hover:grayscale-0 group-hover:invert-0 group-hover:opacity-100"
+                ></iframe>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-10 border-t border-neutral-800/50 flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-bold uppercase tracking-widest text-neutral-600">
+            <p>© {new Date().getFullYear()} Liz Lifestyle. Elegance in every thread.</p>
+            <div className="flex gap-8">
+              <span className="hover:text-white cursor-pointer transition-colors">Privacy</span>
+              <span className="hover:text-white cursor-pointer transition-colors">Shipping</span>
+              <span className="hover:text-white cursor-pointer transition-colors">Terms</span>
+            </div>
+          </div>
+        </div>
+      </footer>
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
