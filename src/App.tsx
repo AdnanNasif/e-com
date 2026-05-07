@@ -201,20 +201,41 @@ export default function App() {
     setIsMenuOpen(false);
   };
 
-  // Initialize Meta Pixel & Track PageViews
+  // Track PageViews & Dynamic SEO
   useEffect(() => {
     const pixelId = import.meta.env.VITE_FB_PIXEL_ID;
-    if (pixelId && typeof window !== 'undefined' && (window as any).fbq) {
-      if (! (window as any)._fbq_initialized) {
+    
+    if (typeof window !== 'undefined' && (window as any).fbq) {
+      if (pixelId && ! (window as any)._fbq_initialized) {
         console.log(`[Meta Pixel] Initializing with ID: ${pixelId}`);
         (window as any).fbq('init', pixelId);
         (window as any)._fbq_initialized = true;
       }
-      (window as any).fbq('track', 'PageView');
-    } else if (!pixelId) {
-      console.warn('[Meta Pixel] VITE_FB_PIXEL_ID is missing in environment variables. Pixel not initialized.');
     }
-  }, [location.pathname]);
+
+    // Standard PageView tracking via both Browser and Server
+    trackEvent({
+      eventName: 'PageView',
+      customData: {
+        path: location.pathname,
+        title: document.title
+      }
+    });
+
+    if (selectedProduct) {
+      trackEvent({
+        eventName: 'ViewContent',
+        customData: {
+          content_name: selectedProduct.name,
+          content_category: selectedProduct.category,
+          content_ids: [selectedProduct.id],
+          content_type: 'product',
+          value: selectedProduct.price,
+          currency: 'BDT'
+        }
+      });
+    }
+  }, [location.pathname, selectedProduct?.id]);
 
   const goToProduct = (item: ClothingItem | null) => {
     if (item) {
@@ -1219,6 +1240,30 @@ export default function App() {
         <meta property="og:title" content={selectedProduct ? `${selectedProduct.category} - Liz Lifestyle` : "Liz Lifestyle | Premium Fashion"} />
         <meta property="og:description" content={selectedProduct ? selectedProduct.description.substring(0, 160) : "Discover curated collections of elegant apparel."} />
         <meta property="og:url" content={window.location.href} />
+        
+        {selectedProduct && (
+          <script type="application/ld+json">
+            {JSON.stringify({
+              "@context": "https://schema.org/",
+              "@type": "Product",
+              "name": selectedProduct.name,
+              "image": [selectedProduct.image],
+              "description": selectedProduct.description,
+              "sku": selectedProduct.product_code,
+              "brand": {
+                "@type": "Brand",
+                "name": "Liz Lifestyle"
+              },
+              "offers": {
+                "@type": "Offer",
+                "url": window.location.href,
+                "priceCurrency": "BDT",
+                "price": selectedProduct.price,
+                "availability": selectedProduct.inventory.some(i => i.quantity > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+              }
+            })}
+          </script>
+        )}
       </Helmet>
       {/* Header */}
       <header className="sticky top-0 z-40 w-full border-b dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-sm">
