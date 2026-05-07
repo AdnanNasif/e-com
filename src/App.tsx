@@ -1837,7 +1837,12 @@ export default function App() {
                                 setActiveImageIdx(0);
                               }}
                              >
-                               <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
+                               <img 
+                                 src={item.image || (item.images && item.images[0]) || 'https://placehold.co/800x1000?text=Premium+Selection'} 
+                                 alt={item.category} 
+                                 className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" 
+                                 referrerPolicy="no-referrer" 
+                               />
                                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
                                <div className="absolute bottom-0 left-0 p-6 md:p-12 space-y-3 md:space-y-4 w-full">
                                  <div className="inline-flex">
@@ -1893,7 +1898,12 @@ export default function App() {
                              }}
                              className="group relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
                            >
-                             <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                             <img 
+                               src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'} 
+                               alt={item.category} 
+                               className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" 
+                               referrerPolicy="no-referrer" 
+                             />
                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                              <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300">
                                 <p className="text-[8px] font-mono font-black text-white/80 mb-1">{item.product_code}</p>
@@ -1946,7 +1956,13 @@ export default function App() {
                         }}
                       >
                         <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 dark:bg-neutral-900 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
-                          <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" loading="lazy" />
+                          <img 
+                            src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'} 
+                            alt={item.category} 
+                            className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" 
+                            referrerPolicy="no-referrer" 
+                            loading="lazy" 
+                          />
                           <div className="absolute top-3 left-3 z-20">
                             <span className="inline-block px-3 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
                               {item.product_code}
@@ -2066,7 +2082,7 @@ export default function App() {
                     }}>
                       <div className="relative aspect-[4/5] overflow-hidden bg-neutral-50">
                         <img
-                          src={item.image}
+                          src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'}
                           alt={item.name}
                           className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-105"
                           referrerPolicy="no-referrer"
@@ -2424,7 +2440,12 @@ export default function App() {
                               />
                             </div>
                             <div className="col-span-2 flex items-center gap-3">
-                              <img src={item.image} alt={item.category} className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
+                              <img 
+                                src={item.image || (item.images && item.images[0]) || 'https://placehold.co/100x100?text=Product'} 
+                                alt={item.category} 
+                                className="h-10 w-10 rounded-md object-cover" 
+                                referrerPolicy="no-referrer" 
+                              />
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {item.product_code && (
@@ -2538,7 +2559,12 @@ export default function App() {
                         className="group relative aspect-square rounded-lg overflow-hidden border bg-neutral-100"
                       >
                         {type === 'image' ? (
-                          <img src={url} alt={itemName} className="h-full w-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
+                          <img 
+                            src={url || 'https://placehold.co/400x400?text=Image'} 
+                            alt={itemName} 
+                            className="h-full w-full object-cover transition-transform group-hover:scale-110" 
+                            referrerPolicy="no-referrer" 
+                          />
                         ) : (
                           <div className="h-full w-full bg-neutral-900 flex items-center justify-center">
                             <Sparkles className="h-8 w-8 text-white/20" />
@@ -2639,7 +2665,12 @@ export default function App() {
                               </select>
                             </div>
                             {product && (
-                              <img src={product.image} className="w-10 h-10 object-cover rounded-md" alt="" referrerPolicy="no-referrer" />
+                              <img 
+                                src={product.image || 'https://placehold.co/100x100?text=Product'} 
+                                className="w-10 h-10 object-cover rounded-md" 
+                                alt="" 
+                                referrerPolicy="no-referrer" 
+                              />
                             )}
                           </div>
                         );
@@ -2725,7 +2756,12 @@ export default function App() {
                                   <div className="flex -space-x-2">
                                     {order.items.map((item, idx) => (
                                       <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`[${item.product_code || 'N/A'}] ${item.category} (${item.size}) x${item.quantity}`}>
-                                        <img src={item.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                                        <img 
+                                          src={item.image || 'https://placehold.co/100x100?text=Product'} 
+                                          alt="" 
+                                          className="h-full w-full object-cover" 
+                                          referrerPolicy="no-referrer" 
+                                        />
                                       </div>
                                     ))}
                                     {order.items.length > 3 && (
@@ -3223,7 +3259,12 @@ export default function App() {
                       {cart.map((item) => (
                         <div key={`${item.id}-${item.selectedSize}`} className="flex gap-4">
                           <div className="h-24 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-neutral-100">
-                            <img src={item.image} alt={item.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                            <img 
+                              src={item.image || 'https://placehold.co/400x500?text=Product'} 
+                              alt={item.name} 
+                              className="h-full w-full object-cover" 
+                              referrerPolicy="no-referrer" 
+                            />
                           </div>
                           <div className="flex flex-1 flex-col justify-between">
                             <div>
