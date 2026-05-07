@@ -61,9 +61,10 @@ async function startServer() {
   app.use(express.json());
 
   // Meta Conversions API Helper
-  const sendMetaEvent = async (eventName: string, userData: any, customData: any = {}, eventSourceUrl: string = '') => {
+  const sendMetaEvent = async (eventName: string, userData: any, customData: any = {}, eventSourceUrl: string = '', eventId?: string) => {
     const pixelId = process.env.META_PIXEL_ID;
     const accessToken = process.env.META_ACCESS_TOKEN;
+    const testEventCode = process.env.META_TEST_EVENT_CODE;
 
     if (!pixelId || !accessToken) {
       console.warn('[Meta] Pixel ID or Access Token missing. Skipping event.');
@@ -75,12 +76,13 @@ async function startServer() {
       return crypto.createHash('sha256').update(data.trim().toLowerCase()).digest('hex');
     };
 
-    const payload = {
+    const payload: any = {
       data: [
         {
           event_name: eventName,
           event_time: Math.floor(Date.now() / 1000),
           action_source: 'website',
+          event_id: eventId,
           event_source_url: eventSourceUrl,
           user_data: {
             em: userData.email ? [hash(userData.email)] : undefined,
@@ -97,6 +99,10 @@ async function startServer() {
       ],
     };
 
+    if (testEventCode) {
+      payload.test_event_code = testEventCode;
+    }
+
     try {
       const response = await fetch(`https://graph.facebook.com/v13.0/${pixelId}/events?access_token=${accessToken}`, {
         method: 'POST',
@@ -105,25 +111,31 @@ async function startServer() {
       });
 
       const result = await response.json();
-      console.log(`[Meta] Event "${eventName}" status:`, result);
+      
+      if (result.error) {
+        console.error(`[Meta] API Error for "${eventName}":`, JSON.stringify(result.error, null, 2));
+      } else {
+        console.log(`[Meta] Event "${eventName}" status:`, result);
+      }
       return result;
     } catch (error) {
-      console.error(`[Meta] Error sending event "${eventName}":`, error);
+      console.error(`[Meta] Network Error sending event "${eventName}":`, error);
     }
   };
 
   // Meta Event Route
   app.post('/api/meta-event', async (req, res) => {
-    const { eventName, userData, customData, eventSourceUrl } = req.body;
+    const { eventName, userData, customData, eventSourceUrl, eventId } = req.body;
     
     // Enrich with server-side info if available
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const enrichedUserData = {
       ...userData,
       client_user_agent: req.headers['user-agent'],
-      client_ip_address: req.ip,
+      client_ip_address: Array.isArray(clientIp) ? clientIp[0] : clientIp?.split(',')[0].trim(),
     };
 
-    const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl);
+    const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl, eventId);
     res.json({ success: true, result });
   });
 

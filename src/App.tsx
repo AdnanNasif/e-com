@@ -95,13 +95,16 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState('');
 
-  const trackMetaEvent = async (eventName: string, customData: any = {}) => {
+  const trackMetaEvent = async (eventName: string, customData: any = {}, eventId?: string) => {
     try {
       const getCookie = (name: string) => {
         const value = `; ${document.cookie}`;
         const parts = value.split(`; ${name}=`);
         if (parts.length === 2) return parts.pop()?.split(';').shift();
       };
+
+      // Generate a unique event ID if not provided
+      const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       const userData = {
         email: user?.email || userProfile?.email || undefined,
@@ -120,10 +123,11 @@ export default function App() {
           userData,
           customData,
           eventSourceUrl: window.location.href,
+          eventId: currentEventId,
         }),
       });
     } catch (err) {
-      console.warn('Meta tracking failed (likely missing secrets):', err);
+      console.warn('Meta tracking failed:', err);
     }
   };
 
@@ -285,7 +289,7 @@ export default function App() {
         value: selectedProduct.price,
         currency: 'BDT',
         content_type: 'product'
-      });
+      }, `vc_${selectedProduct.id}_${Date.now()}`);
     }
   }, [selectedProduct, selectedCategory, location.pathname]);
 
@@ -793,7 +797,7 @@ export default function App() {
       value: item.price,
       currency: 'BDT',
       content_type: 'product'
-    });
+    }, `atc_${item.id}_${Date.now()}`);
   };
 
   const updateInventory = async (itemId: string, size: string, newQuantity: number) => {
@@ -963,7 +967,7 @@ export default function App() {
         currency: 'BDT',
         num_items: cart.reduce((s, i) => s + i.cartQuantity, 0),
         content_type: 'product'
-      });
+      }, `pur_${Date.now()}`);
 
       // Send Email Notification
       sendOrderEmail(fullOrder);
@@ -3362,7 +3366,7 @@ export default function App() {
                         currency: 'BDT',
                         num_items: cart.reduce((s, i) => s + i.cartQuantity, 0),
                         content_type: 'product'
-                      });
+                      }, `ic_${Date.now()}`);
                     }}
                   >
                     Checkout
