@@ -95,7 +95,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState('');
 
-  const trackMetaEvent = async (eventName: string, customData: any = {}, eventId?: string) => {
+  const trackMetaEvent = async (eventName: string, customData: any = {}, eventId?: string, userDataOverride: any = {}) => {
     try {
       const getCookie = (name: string) => {
         const value = `; ${document.cookie}`;
@@ -107,10 +107,10 @@ export default function App() {
       const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       const userData = {
-        email: user?.email || userProfile?.email || checkoutForm.email || undefined,
-        phone: userProfile?.phone || checkoutForm.phone || undefined,
-        fn: userProfile?.displayName?.split(' ')[0] || checkoutForm.name?.split(' ')[0] || undefined,
-        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || checkoutForm.name?.split(' ').slice(1).join(' ') || undefined,
+        email: userDataOverride.email || user?.email || userProfile?.email || checkoutForm.email || undefined,
+        phone: userDataOverride.phone || userProfile?.phone || checkoutForm.phone || undefined,
+        fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.name?.split(' ')[0] || undefined,
+        ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.name?.split(' ').slice(1).join(' ') || undefined,
         fbc: getCookie('_fbc'),
         fbp: getCookie('_fbp'),
       };
@@ -981,7 +981,7 @@ export default function App() {
         currency: 'BDT',
         num_items: cart.reduce((s, i) => s + i.cartQuantity, 0),
         content_type: 'product'
-      }, `pur_${Date.now()}`);
+      }, `pur_${Date.now()}`, checkoutForm);
 
       // Send Email Notification
       sendOrderEmail(fullOrder);
