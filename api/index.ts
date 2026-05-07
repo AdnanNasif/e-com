@@ -95,8 +95,17 @@ app.post('/api/meta-event', async (req, res) => {
     client_ip_address: Array.isArray(clientIp) ? clientIp[0] : clientIp?.split(',')[0].trim(),
   };
 
+  const testEventCode = process.env.META_TEST_EVENT_CODE;
   const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl, eventId);
-  res.json({ success: true, result, debug: { enrichedUserData, eventId } });
+  res.json({ 
+    success: true, 
+    result, 
+    debug: { 
+      enrichedUserData, 
+      eventId,
+      testCodeActive: !!testEventCode 
+    } 
+  });
 });
 
 app.post('/api/send-email', async (req, res) => {
