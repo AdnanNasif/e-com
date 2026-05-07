@@ -115,6 +115,12 @@ export default function App() {
         fbp: getCookie('_fbp'),
       };
 
+      // Browser-side call for deduplication
+      if (typeof window !== 'undefined' && (window as any).fbq) {
+        (window as any).fbq('track', eventName, customData, { eventID: currentEventId });
+        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}`);
+      }
+
       await fetch('/api/meta-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
