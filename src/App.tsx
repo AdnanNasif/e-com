@@ -134,19 +134,20 @@ export default function App() {
         const options: any = { eventID: currentEventId };
         if (testCode) options.test_event_code = testCode;
 
-        // If we have user data, hash it and send it
+        // If we have user data, add it to the options for Advanced Matching
         if (userData.email || userData.phone) {
           const hashedEmail = await hashString(userData.email);
           const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
           const hashedFn = await hashString(userData.fn);
           const hashedLn = await hashString(userData.ln);
 
-          (window as any).fbq('setUserVars', {
+          options.external_id = currentEventId; // Also help matching with a unique ID
+          options.user_data = {
             em: hashedEmail,
             ph: hashedPhone,
             fn: hashedFn,
-            ln: hashedLn,
-          });
+            ln: hashedLn
+          };
         }
 
         (window as any).fbq('track', eventName, cleanData, options);
