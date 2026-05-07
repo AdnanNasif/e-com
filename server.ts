@@ -64,13 +64,12 @@ async function startServer() {
 
   // Event Analytics Gateway (Proxy for CAPI)
   app.post('/api/v1/analytics', async (req, res) => {
-    console.log(`[FB-CAPI] Received request: ${req.body.event_name}`);
     const { event_name, event_time, event_id, user_data, custom_data, event_source_url, test_event_code } = req.body;
     const pixelId = process.env.VITE_FB_PIXEL_ID;
     const accessToken = process.env.FB_ACCESS_TOKEN;
 
     if (!pixelId || !accessToken) {
-      console.warn('[FB-CAPI] Missing Pixel ID or Access Token. Event skipped.', { pixelId: !!pixelId, accessToken: !!accessToken });
+      console.warn('[FB-CAPI] Missing Pixel ID or Access Token. Event skipped.');
       return res.status(200).json({ status: 'skipped', reason: 'config_missing' });
     }
 
@@ -89,10 +88,9 @@ async function startServer() {
           },
           custom_data
         }],
-        test_event_code: test_event_code // Pass through for testing
+        test_event_code: req.body.test_event_code // Pass through for testing
       };
 
-      console.log(`[FB-CAPI] Sending to Meta Graph API for Pixel: ${pixelId}`);
       const response = await fetch(`https://graph.facebook.com/v17.0/${pixelId}/events?access_token=${accessToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,11 +98,11 @@ async function startServer() {
       });
 
       const result = await response.json();
-      console.log(`[FB-CAPI] Meta Response:`, JSON.stringify(result));
+      console.log(`[FB-CAPI] Event "${event_name}" sent:`, JSON.stringify(result));
       res.status(200).json(result);
     } catch (error) {
-      console.error('[FB-CAPI] Unexpected Error:', error);
-      res.status(500).json({ error: 'Failed to send CAPI event', details: error instanceof Error ? error.message : String(error) });
+      console.error('[FB-CAPI] Error sending event:', error);
+      res.status(500).json({ error: 'Failed to send CAPI event' });
     }
   });
 

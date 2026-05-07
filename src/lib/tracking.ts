@@ -57,20 +57,8 @@ export const trackEvent = async ({ eventName, userData, customData, eventId }: T
       }),
     });
     
-    if (!response.ok) {
-      const text = await response.text();
-      console.warn(`[Tracking] CAPI HTTP Error ${response.status}:`, text.substring(0, 500));
-      return;
-    }
-    
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const result = await response.json();
-      console.debug(`[Tracking] CAPI Status:`, result.status || 'Sent');
-    } else {
-      const text = await response.text();
-      console.warn(`[Tracking] CAPI non-JSON response:`, text.substring(0, 100));
-    }
+    const result = await response.json();
+    console.debug(`[Tracking] CAPI Status:`, result.status || 'Sent');
   } catch (error) {
     console.warn('[Tracking] CAPI track failed:', error);
   }
