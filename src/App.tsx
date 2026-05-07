@@ -94,6 +94,39 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState('');
+
+  const trackMetaEvent = async (eventName: string, customData: any = {}) => {
+    try {
+      const getCookie = (name: string) => {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop()?.split(';').shift();
+      };
+
+      const userData = {
+        email: user?.email || userProfile?.email || undefined,
+        phone: userProfile?.phone || undefined,
+        fn: userProfile?.displayName?.split(' ')[0] || undefined,
+        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || undefined,
+        fbc: getCookie('_fbc'),
+        fbp: getCookie('_fbp'),
+      };
+
+      await fetch('/api/meta-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventName,
+          userData,
+          customData,
+          eventSourceUrl: window.location.href,
+        }),
+      });
+    } catch (err) {
+      console.warn('Meta tracking failed (likely missing secrets):', err);
+    }
+  };
+
   const [showLogin, setShowLogin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
@@ -243,6 +276,17 @@ export default function App() {
 
     const ogUrl = document.querySelector('meta[property="og:url"]');
     if (ogUrl) ogUrl.setAttribute('content', window.location.href);
+
+    if (selectedProduct) {
+      trackMetaEvent('ViewContent', {
+        content_ids: [selectedProduct.id],
+        content_name: selectedProduct.name,
+        content_category: selectedProduct.category,
+        value: selectedProduct.price,
+        currency: 'BDT',
+        content_type: 'product'
+      });
+    }
   }, [selectedProduct, selectedCategory, location.pathname]);
 
   // Helper navigating functions
@@ -741,6 +785,15 @@ export default function App() {
     } else {
       setCart([...cart, { ...item, selectedSize: size as any, cartQuantity: 1 }]);
     }
+
+    trackMetaEvent('AddToCart', {
+      content_ids: [item.id],
+      content_name: item.name,
+      content_category: item.category,
+      value: item.price,
+      currency: 'BDT',
+      content_type: 'product'
+    });
   };
 
   const updateInventory = async (itemId: string, size: string, newQuantity: number) => {
@@ -903,6 +956,15 @@ export default function App() {
       setIsCartOpen(false);
       setSaveStatus({ type: 'success', message: 'Order placed successfully!' });
       
+      // Meta Purchase tracking
+      trackMetaEvent('Purchase', {
+        content_ids: cart.map(i => i.id),
+        value: finalTotal,
+        currency: 'BDT',
+        num_items: cart.reduce((s, i) => s + i.cartQuantity, 0),
+        content_type: 'product'
+      });
+
       // Send Email Notification
       sendOrderEmail(fullOrder);
 
@@ -3292,7 +3354,16 @@ export default function App() {
                   <Button 
                     className="w-full h-12 bg-neutral-900 text-white hover:bg-neutral-800" 
                     disabled={cart.length === 0}
-                    onClick={() => setIsCheckoutOpen(true)}
+                    onClick={() => {
+                      setIsCheckoutOpen(true);
+                      trackMetaEvent('InitiateCheckout', {
+                        content_ids: cart.map(i => i.id),
+                        value: finalTotal,
+                        currency: 'BDT',
+                        num_items: cart.reduce((s, i) => s + i.cartQuantity, 0),
+                        content_type: 'product'
+                      });
+                    }}
                   >
                     Checkout
                   </Button>

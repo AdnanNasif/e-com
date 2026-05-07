@@ -4,6 +4,7 @@ import path from 'path';
 import { Resend } from 'resend';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
+import crypto from 'crypto';
 
 async function startServer() {
   const app = express();
@@ -58,6 +59,73 @@ async function startServer() {
   });
 
   app.use(express.json());
+
+  // Meta Conversions API Helper
+  const sendMetaEvent = async (eventName: string, userData: any, customData: any = {}, eventSourceUrl: string = '') => {
+    const pixelId = process.env.META_PIXEL_ID;
+    const accessToken = process.env.META_ACCESS_TOKEN;
+
+    if (!pixelId || !accessToken) {
+      console.warn('[Meta] Pixel ID or Access Token missing. Skipping event.');
+      return;
+    }
+
+    const hash = (data: string) => {
+      if (!data) return undefined;
+      return crypto.createHash('sha256').update(data.trim().toLowerCase()).digest('hex');
+    };
+
+    const payload = {
+      data: [
+        {
+          event_name: eventName,
+          event_time: Math.floor(Date.now() / 1000),
+          action_source: 'website',
+          event_source_url: eventSourceUrl,
+          user_data: {
+            em: userData.email ? [hash(userData.email)] : undefined,
+            ph: userData.phone ? [hash(userData.phone)] : undefined,
+            fn: userData.fn ? [hash(userData.fn)] : undefined,
+            ln: userData.ln ? [hash(userData.ln)] : undefined,
+            client_user_agent: userData.client_user_agent,
+            client_ip_address: userData.client_ip_address,
+            fbc: userData.fbc,
+            fbp: userData.fbp,
+          },
+          custom_data: customData,
+        },
+      ],
+    };
+
+    try {
+      const response = await fetch(`https://graph.facebook.com/v13.0/${pixelId}/events?access_token=${accessToken}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      console.log(`[Meta] Event "${eventName}" status:`, result);
+      return result;
+    } catch (error) {
+      console.error(`[Meta] Error sending event "${eventName}":`, error);
+    }
+  };
+
+  // Meta Event Route
+  app.post('/api/meta-event', async (req, res) => {
+    const { eventName, userData, customData, eventSourceUrl } = req.body;
+    
+    // Enrich with server-side info if available
+    const enrichedUserData = {
+      ...userData,
+      client_user_agent: req.headers['user-agent'],
+      client_ip_address: req.ip,
+    };
+
+    const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl);
+    res.json({ success: true, result });
+  });
 
   // API Route for sending email
   app.post('/api/send-email', async (req, res) => {
@@ -130,7 +198,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.resolve(process.cwd(), 'dist');
+    console.log(`[Server] Serving static files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -138,7 +207,8 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`[Server] Running on http://0.0.0.0:${PORT}`);
   });
 }
 
