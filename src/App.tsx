@@ -1283,9 +1283,10 @@ export default function App() {
             }}>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-[0_8px_20px_-6px_rgba(0,0,0,0.3)] transition-all duration-500 group-hover:scale-110">
                 <img 
-                  src="/logo_gold.png" 
+                  src="/logo.png" 
                   alt="Liz Lifestyle Logo" 
                   className="h-full w-full object-contain" 
+                  referrerPolicy="no-referrer"
                   onError={(e) => {
                     e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                   }}
@@ -1352,7 +1353,7 @@ export default function App() {
                   title="My Account"
                 >
                   {user.photoURL ? (
-                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" />
+                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
                       {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
@@ -1415,9 +1416,10 @@ export default function App() {
                 }}>
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-lg">
                     <img 
-                      src="/logo_gold.png" 
+                      src="/logo.png" 
                       alt="Liz Lifestyle Logo" 
                       className="h-full w-full object-contain" 
+                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                       }}
@@ -2805,6 +2807,7 @@ export default function App() {
                     src="/logo.png" 
                     alt="Liz Lifestyle" 
                     className="h-full w-full object-cover"
+                    referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                     }}
@@ -3153,7 +3156,7 @@ export default function App() {
                     variant="outline"
                     className="w-full border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 h-14 rounded-2xl font-bold flex items-center justify-center gap-3 transition-colors"
                   >
-                    <img src="https://www.google.com/favicon.ico" alt="Google" className="h-5 w-5" />
+                    <img src="https://www.google.com/favicon.ico" alt="Google" className="h-5 w-5" referrerPolicy="no-referrer" />
                     Google Account
                   </Button>
                 </div>
@@ -3460,7 +3463,7 @@ export default function App() {
                                 {order.items.map((item, itemIdx) => (
                                   <div key={`${order.id}-item-${itemIdx}`} className="flex gap-5 items-center group/item transition-transform hover:translate-x-1">
                                     <div className="h-20 w-16 rounded-2xl bg-neutral-100 dark:bg-neutral-800 overflow-hidden flex-shrink-0 border dark:border-neutral-700 shadow-sm">
-                                      <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" />
+                                      <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" referrerPolicy="no-referrer" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex justify-between items-start mb-2">
