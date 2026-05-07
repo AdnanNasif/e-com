@@ -180,6 +180,11 @@ async function startServer() {
     }
   });
 
+  // Explicitly 404 any other /api routes to prevent falling through to SPA catch-all
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.url} not found on this server` });
+  });
+
   // Generic error handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('Express Error:', err);
