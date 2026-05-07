@@ -33,6 +33,7 @@
       "description": "A customer order",
       "type": "object",
       "properties": {
+        "user_id": { "type": "string", "description": "The UID of the authenticated user who placed the order" },
         "customer_name": { "type": "string" },
         "phone": { "type": "string" },
         "address": { "type": "string" },
@@ -58,6 +59,19 @@
       },
       "required": ["customer_name", "phone", "address", "items", "total_amount"]
     },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Customer profile and preferences",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "default_delivery_location": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
     "HomepageSettings": {
       "title": "Homepage Settings",
       "description": "Configuration for homepage highlights and featured categories",
@@ -77,6 +91,10 @@
     "orders": {
       "schema": "Order",
       "description": "Collection of customer orders"
+    },
+    "user_profiles": {
+      "schema": "UserProfile",
+      "description": "Customer profile data, accessible only by the owner"
     },
     "settings": {
       "schema": "HomepageSettings",

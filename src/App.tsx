@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Helmet } from 'react-helmet-async';
+import { trackEvent } from './lib/tracking';
 import { 
   ShoppingBag, 
   Search, 
@@ -42,7 +44,9 @@ import {
   Instagram,
   Facebook,
   Sun,
-  Moon
+  Moon,
+  User as UserIcon,
+  Truck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,11 +55,13 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ClothingItem, CartItem, Order, HomepageSettings } from './types';
+import { ClothingItem, CartItem, Order, HomepageSettings, UserProfile } from './types';
 import { 
   db, 
   auth, 
   loginWithGoogle, 
+  loginWithEmail,
+  signUpWithEmail,
   logout, 
   collection, 
   doc, 
@@ -68,12 +74,14 @@ import {
   onSnapshot, 
   query, 
   orderBy, 
+  where,
   serverTimestamp,
   handleFirestoreError,
   OperationType,
-  Timestamp
+  Timestamp,
+  User
 } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const navigate = useNavigate();
@@ -119,6 +127,16 @@ export default function App() {
   });
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ClothingItem | null>(null);
+  
+  // User Profile & Order tracking
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
 
   // Sync state FROM URL
   useEffect(() => {
@@ -182,6 +200,15 @@ export default function App() {
     }
     setIsMenuOpen(false);
   };
+
+  // Initialize Meta Pixel
+  useEffect(() => {
+    const pixelId = import.meta.env.VITE_FB_PIXEL_ID;
+    if (pixelId && typeof window !== 'undefined' && (window as any).fbq) {
+      (window as any).fbq('init', pixelId);
+      (window as any).fbq('track', 'PageView');
+    }
+  }, []);
 
   const goToProduct = (item: ClothingItem | null) => {
     if (item) {
@@ -327,6 +354,19 @@ export default function App() {
     address: '',
     delivery_location: 'inside' as 'inside' | 'outside'
   });
+  // Pre-fill checkout form with user profile
+  useEffect(() => {
+    if (userProfile && !checkoutForm.customer_name) {
+      setCheckoutForm(prev => ({
+        ...prev,
+        customer_name: userProfile.displayName || '',
+        phone: userProfile.phone || '',
+        address: userProfile.address || '',
+        delivery_location: userProfile.default_delivery_location || 'inside'
+      }));
+    }
+  }, [userProfile]);
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [lastCheckedOrderId, setLastCheckedOrderId] = useState<string>(localStorage.getItem('last_checked_order_id') || '');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
@@ -406,12 +446,60 @@ export default function App() {
   }, [orders]);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+    let unsubscribeOrders: () => void = () => {};
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (currentUser && currentUser.email === ADMIN_EMAIL) {
-        setIsAdmin(true);
+      if (currentUser) {
+        setIsAdmin(currentUser.email === ADMIN_EMAIL);
+        
+        // Fetch/Sync Profile
+        const profileRef = doc(db, 'user_profiles', currentUser.uid);
+        const profileSnap = await getDoc(profileRef);
+        
+        if (profileSnap.exists()) {
+          setUserProfile(profileSnap.data() as UserProfile);
+        } else {
+          // Create initial profile if it doesn't exist
+          const newProfile: UserProfile = {
+            email: currentUser.email || '',
+            displayName: currentUser.displayName || 'Customer',
+            created_at: new Date().toISOString()
+          };
+          await setDoc(profileRef, newProfile);
+          setUserProfile(newProfile);
+        }
+
+        // Sync User Orders
+        const userOrdersQuery = query(
+          collection(db, 'orders'), 
+          where('user_id', '==', currentUser.uid)
+        );
+        unsubscribeOrders = onSnapshot(userOrdersQuery, (snapshot) => {
+          const ordersData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Order[];
+          
+          // Sort client-side by date to avoid composite index requirement
+          const sortedOrders = [...ordersData].sort((a, b) => {
+            const dateA = (a.created_at as any)?.toDate ? (a.created_at as any).toDate().getTime() : 
+                          a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = (b.created_at as any)?.toDate ? (b.created_at as any).toDate().getTime() : 
+                          b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateB - dateA;
+          });
+          
+          setUserOrders(sortedOrders);
+        }, (error) => {
+          console.error("User orders error:", error);
+        });
+
       } else {
         setIsAdmin(false);
+        setUserProfile(null);
+        setUserOrders([]);
+        if (unsubscribeOrders) unsubscribeOrders();
       }
     });
 
@@ -477,6 +565,19 @@ export default function App() {
     }
   }, [highlightItems]);
 
+  const updateProfile = async (updates: Partial<UserProfile>) => {
+    if (!user) return;
+    try {
+      const profileRef = doc(db, 'user_profiles', user.uid);
+      await updateDoc(profileRef, updates);
+      setUserProfile(prev => prev ? { ...prev, ...updates } : null);
+      setSaveStatus({ type: 'success', message: 'Profile updated successfully.' });
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+      setSaveStatus({ type: 'error', message: 'Failed to update profile.' });
+    }
+  };
+
   const seedInitialData = async () => {
     const initialItems = [
       { name: 'Classic White Tee', category: 'Tops', price: 25, image: 'https://picsum.photos/seed/tee/400/500', description: 'A essential white t-shirt made from 100% organic cotton.', display_order: 1 },
@@ -503,32 +604,96 @@ export default function App() {
   const handleGoogleLogin = async () => {
     setLoginError('');
     try {
-      const result = await loginWithGoogle();
-      if (result.user.email !== ADMIN_EMAIL) {
-        setLoginError(`Access denied: ${result.user.email} is not authorized.`);
-        await logout();
-      } else {
-        setShowLogin(false);
-      }
+      await loginWithGoogle();
+      setShowLogin(false);
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.code === 'auth/unauthorized-domain') {
-        setLoginError('Login failed: This domain is not authorized in Firebase Console. Please add your Vercel domain to "Authorized Domains" in Firebase Auth settings.');
+        setLoginError('Login failed: domain not authorized. Please check Firebase settings.');
       } else if (err.code === 'auth/popup-blocked') {
-        setLoginError('Login failed: Popup blocked by browser. Please allow popups for this site.');
+        setLoginError('Login failed: Popup blocked. Please allow popups.');
       } else {
         setLoginError(`Login failed: ${err.message || 'Please try again.'}`);
       }
     }
   };
 
+  const handleEmailAuth = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setLoginError('Please fill in all fields.');
+      return;
+    }
+    
+    setIsAuthLoading(true);
+    setLoginError('');
+    
+    try {
+      if (authMode === 'login') {
+        await loginWithEmail(email, password);
+      } else {
+        if (!displayName) {
+          setLoginError('Please enter your name.');
+          setIsAuthLoading(false);
+          return;
+        }
+        const userCred = await signUpWithEmail(email, password);
+        // Create profile immediately to ensure form data is used
+        await setDoc(doc(db, 'user_profiles', userCred.user.uid), {
+          email,
+          displayName: displayName,
+          created_at: new Date().toISOString()
+        });
+      }
+      setShowLogin(false);
+      setEmail('');
+      setPassword('');
+      setDisplayName('');
+    } catch (error: any) {
+      console.error("Auth error:", error);
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        setLoginError('Invalid email or password.');
+      } else if (error.code === 'auth/email-already-in-use') {
+        setLoginError('This email is already registered.');
+      } else if (error.code === 'auth/weak-password') {
+        setLoginError('Password should be at least 6 characters.');
+      } else {
+        setLoginError('Authentication failed. Please try again.');
+      }
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
-    await logout();
-    setIsAdmin(false);
+    try {
+      await logout();
+      setIsAdmin(false);
+      setUserProfile(null);
+      setUserOrders([]);
+      setIsProfileOpen(false);
+      setSaveStatus({ type: 'success', message: 'Signed out successfully.' });
+    } catch (err) {
+      console.error('Logout failed:', err);
+      setSaveStatus({ type: 'error', message: 'Failed to sign out.' });
+    }
   };
 
 
   const addToCart = (item: ClothingItem, size: string) => {
+    // Track AddToCart event
+    trackEvent({
+      eventName: 'AddToCart',
+      customData: {
+        content_name: item.name,
+        content_category: item.category,
+        content_ids: [item.id],
+        content_type: 'product',
+        value: item.price,
+        currency: 'BDT'
+      }
+    });
+
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
     const inventoryItem = item.inventory.find(i => i.size === size);
     if (!inventoryItem || inventoryItem.quantity <= 0) return;
@@ -665,6 +830,7 @@ export default function App() {
         delivery_location: checkoutForm.delivery_location,
         delivery_charge: deliveryCharge,
         total_amount: finalTotal,
+        ...(user ? { user_id: user.uid } : {}),
         items: cart.map(item => ({
           id: item.id,
           name: item.category,
@@ -679,6 +845,26 @@ export default function App() {
       };
 
       const docRef = await addDoc(collection(db, 'orders'), orderData);
+      
+      // Track Purchase event
+      trackEvent({
+        eventName: 'Purchase',
+        userData: {
+          em: checkoutForm.phone + '@lizlifestyle.com', // Fallback email if not available
+          ph: checkoutForm.phone,
+          fn: checkoutForm.customer_name.split(' ')[0],
+          ln: checkoutForm.customer_name.split(' ').slice(1).join(' ')
+        },
+        customData: {
+          content_ids: cart.map(item => item.id),
+          content_type: 'product',
+          value: finalTotal,
+          currency: 'BDT',
+          num_items: cart.reduce((acc, item) => acc + item.cartQuantity, 0)
+        },
+        eventId: docRef.id
+      });
+
       const fullOrder = { ...orderData, id: docRef.id };
       setLastOrder(fullOrder);
       
@@ -692,7 +878,10 @@ export default function App() {
               ? { ...inv, quantity: Math.max(0, inv.quantity - item.cartQuantity) } 
               : inv
           );
-          await updateDoc(productRef, { inventory: newInventory });
+          await updateDoc(productRef, { 
+            inventory: newInventory,
+            updated_at: serverTimestamp()
+          });
         }
       }
 
@@ -700,6 +889,7 @@ export default function App() {
       setCart([]);
       setIsCheckoutOpen(false);
       setIsCartOpen(false);
+      setSaveStatus({ type: 'success', message: 'Order placed successfully!' });
       
       // Send Email Notification
       sendOrderEmail(fullOrder);
@@ -710,8 +900,14 @@ export default function App() {
         address: '',
         delivery_location: 'inside'
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Checkout failed:', err);
+      setSaveStatus({ 
+        type: 'error', 
+        message: err.message?.includes('permission') 
+          ? 'Failed to place order: Security validation failed. Please check your details.' 
+          : 'Checkout failed. Please try again.' 
+      });
     } finally {
       setIsSubmittingOrder(false);
     }
@@ -1011,6 +1207,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 font-sans text-neutral-900 dark:text-foreground transition-colors duration-300">
+      <Helmet>
+        <title>{selectedProduct ? `${selectedProduct.category} | ${selectedProduct.product_code} - Liz Lifestyle` : (selectedCategory !== 'All' ? `${selectedCategory} Collection - Liz Lifestyle` : "Liz Lifestyle | Premium Fashion & Elegant Apparel")}</title>
+        <meta name="description" content={selectedProduct ? selectedProduct.description.substring(0, 160) : "Shop the latest in premium fashion at Liz Lifestyle. Discover elegant dresses and exclusive collections."} />
+        <meta property="og:title" content={selectedProduct ? `${selectedProduct.category} - Liz Lifestyle` : "Liz Lifestyle | Premium Fashion"} />
+        <meta property="og:description" content={selectedProduct ? selectedProduct.description.substring(0, 160) : "Discover curated collections of elegant apparel."} />
+        <meta property="og:url" content={window.location.href} />
+      </Helmet>
       {/* Header */}
       <header className="sticky top-0 z-40 w-full border-b dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-sm">
         <div className="container mx-auto flex h-20 items-center justify-between px-4">
@@ -1027,11 +1230,11 @@ export default function App() {
               goToCategory('All');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-[0_8px_20px_-6px_rgba(0,0,0,0.1)] transition-all duration-500 group-hover:scale-110">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-[0_8px_20px_-6px_rgba(0,0,0,0.3)] transition-all duration-500 group-hover:scale-110">
                 <img 
-                  src="/logo.png" 
+                  src="/logo_gold.png" 
                   alt="Liz Lifestyle Logo" 
-                  className="h-full w-full object-cover" 
+                  className="h-full w-full object-contain" 
                   onError={(e) => {
                     e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                   }}
@@ -1087,13 +1290,48 @@ export default function App() {
                 </span>
               )}
             </Button>
-            {isAdmin ? (
-              <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout Admin">
-                <LogOut className="h-5 w-5" />
-              </Button>
+
+            {user ? (
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsProfileOpen(true)}
+                  className="rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden hover:ring-2 hover:ring-emerald-500 transition-all"
+                  title="My Account"
+                >
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={handleLogout} 
+                  className="text-neutral-400 hover:text-red-500 rounded-full"
+                  title="Logout"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+                {isAdmin && (
+                  <Button variant="ghost" size="icon" onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })} title="Admin Panel">
+                    <Lock className="h-4 w-4 text-emerald-600" />
+                  </Button>
+                )}
+              </div>
             ) : (
-              <Button variant="ghost" size="icon" onClick={() => setShowLogin(true)} title="Admin Login">
-                <Lock className="h-5 w-5" />
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setShowLogin(true)} 
+                className="text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"
+                title="Login / Signup"
+              >
+                <LogIn className="h-5 w-5" />
               </Button>
             )}
           </div>
@@ -1124,11 +1362,11 @@ export default function App() {
                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => {
                   goToCategory('All');
                 }}>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-lg">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-lg">
                     <img 
-                      src="/logo.png" 
+                      src="/logo_gold.png" 
                       alt="Liz Lifestyle Logo" 
-                      className="h-full w-full object-cover" 
+                      className="h-full w-full object-contain" 
                       onError={(e) => {
                         e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                       }}
@@ -2749,7 +2987,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Login Modal */}
+      {/* Login / Auth Modal */}
       <AnimatePresence>
         {showLogin && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2757,37 +2995,131 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowLogin(false)}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => {
+                setShowLogin(false);
+                setLoginError('');
+              }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
             />
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-sm rounded-2xl bg-white p-8 shadow-2xl"
+              initial={{ y: 50, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 50, opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md rounded-3xl bg-white dark:bg-neutral-900 p-8 shadow-2xl overflow-hidden"
             >
-              <div className="mb-6 text-center">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
-                  <Lock className="h-6 w-6 text-neutral-900" />
-                </div>
-                <h2 className="text-2xl font-bold">Admin Login</h2>
-                <p className="text-sm text-neutral-500">
-                  Access restricted to authorized personnel only.
-                </p>
-              </div>
-              <div className="space-y-4">
-                {loginError && (
-                  <p className="text-xs font-bold text-red-500 text-center">
-                    {loginError}
+              {/* Decorative Background */}
+              <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-emerald-50 dark:bg-emerald-950/20 blur-3xl opacity-50" />
+              
+              <div className="relative">
+                <div className="mb-8 text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-900 text-white shadow-xl">
+                    <Sparkles className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-3xl font-black tracking-tight text-neutral-900 dark:text-foreground">
+                    {authMode === 'login' ? 'Welcome Back' : 'Join Liz Lifestyle'}
+                  </h2>
+                  <p className="mt-2 text-sm text-neutral-500">
+                    {authMode === 'login' 
+                      ? 'Sign in to access your orders and profile' 
+                      : 'Create an account to start your journey with us'}
                   </p>
-                )}
-                <Button 
-                  onClick={handleGoogleLogin}
-                  className="w-full bg-neutral-900 text-white hover:bg-neutral-800 flex items-center justify-center gap-2 h-12 rounded-xl font-bold"
-                >
-                  <LogIn className="h-5 w-5" />
-                  Sign in with Google
-                </Button>
+                </div>
+
+                <form onSubmit={handleEmailAuth} className="space-y-4">
+                  {authMode === 'signup' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 ml-1">Full Name</label>
+                      <div className="relative">
+                        <Input
+                          placeholder="Your Name"
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          className="h-12 rounded-xl bg-neutral-50 dark:bg-neutral-800 border-none pl-4 pr-4"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 ml-1">Email Address</label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-4 h-4 w-4 text-neutral-400" />
+                      <Input
+                        type="email"
+                        placeholder="email@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="h-12 rounded-xl bg-neutral-50 dark:bg-neutral-800 border-none pl-12 pr-4"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 ml-1">Password</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-4 h-4 w-4 text-neutral-400" />
+                      <Input
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="h-12 rounded-xl bg-neutral-50 dark:bg-neutral-800 border-none pl-12 pr-4"
+                      />
+                    </div>
+                  </div>
+
+                  {loginError && (
+                    <p className="text-xs font-bold text-red-500 text-center animate-pulse">
+                      {loginError}
+                    </p>
+                  )}
+
+                  <Button 
+                    type="submit"
+                    disabled={isAuthLoading}
+                    className="w-full bg-neutral-900 text-white hover:bg-neutral-800 h-14 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95"
+                  >
+                    {isAuthLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      authMode === 'login' ? 'Sign In' : 'Create Account'
+                    )}
+                  </Button>
+                </form>
+
+                <div className="mt-8 relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-neutral-100 dark:border-neutral-800" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white dark:bg-neutral-900 px-4 text-neutral-400 font-bold tracking-tighter">Or continue with</span>
+                  </div>
+                </div>
+
+                <div className="mt-8">
+                  <Button 
+                    onClick={handleGoogleLogin}
+                    variant="outline"
+                    className="w-full border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 h-14 rounded-2xl font-bold flex items-center justify-center gap-3 transition-colors"
+                  >
+                    <img src="https://www.google.com/favicon.ico" alt="Google" className="h-5 w-5" />
+                    Google Account
+                  </Button>
+                </div>
+
+                <div className="mt-8 text-center">
+                  <button 
+                    onClick={() => {
+                      setAuthMode(authMode === 'login' ? 'signup' : 'login');
+                      setLoginError('');
+                    }}
+                    className="text-xs font-bold text-neutral-400 hover:text-emerald-600 transition-colors"
+                  >
+                    {authMode === 'login' 
+                      ? 'No account? Join the lifestyle here' 
+                      : 'Already a member? Sign in here'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -2879,7 +3211,20 @@ export default function App() {
                   <Button 
                     className="w-full h-12 bg-neutral-900 text-white hover:bg-neutral-800" 
                     disabled={cart.length === 0}
-                    onClick={() => setIsCheckoutOpen(true)}
+                    onClick={() => {
+                      // Track InitiateCheckout
+                      trackEvent({
+                        eventName: 'InitiateCheckout',
+                        customData: {
+                          content_ids: cart.map(item => item.id),
+                          content_type: 'product',
+                          value: totalCartPrice,
+                          currency: 'BDT',
+                          num_items: cart.reduce((acc, item) => acc + item.cartQuantity, 0)
+                        }
+                      });
+                      setIsCheckoutOpen(true)
+                    }}
                   >
                     Checkout
                   </Button>
@@ -2921,7 +3266,7 @@ export default function App() {
                   src={zoomedImage}
                   alt="Zoomed"
                   className="h-full w-full object-contain transition-transform duration-300 ease-out"
-                  whileHover={{ scale: 1.5 }}
+                  whileHover={{ scale: 1.2 }}
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
                   referrerPolicy="no-referrer"
                   onMouseMove={(e) => {
@@ -2935,6 +3280,273 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Account / Order History Sidebar */}
+      <AnimatePresence>
+        {isProfileOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsProfileOpen(false)}
+              className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed right-0 top-0 z-[61] h-full w-full max-w-md bg-white dark:bg-neutral-900 shadow-2xl flex flex-col"
+            >
+              {/* Sidebar Header */}
+              <div className="flex items-center justify-between border-b dark:border-neutral-800 p-6 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <UserIcon className="h-5 w-5 text-emerald-600" />
+                  <h2 className="text-xl font-bold">My Account</h2>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setIsProfileOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Main Content Area */}
+              <div className="flex-1 overflow-y-auto bg-neutral-50/30 dark:bg-neutral-900/40">
+                <div className="p-6 space-y-10">
+                  {/* Account Summary Stats */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 shadow-sm transition-transform hover:scale-[1.02]">
+                      <p className="text-[10px] font-black uppercase text-neutral-400 tracking-[0.2em] mb-2">Total Orders</p>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-black text-emerald-600">{userOrders.length}</span>
+                        <span className="text-[10px] font-black text-neutral-300 uppercase tracking-tighter">{userOrders.length === 1 ? 'Order' : 'Orders'}</span>
+                      </div>
+                    </div>
+                    <div className="p-5 rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 shadow-sm transition-transform hover:scale-[1.02]">
+                      <p className="text-[10px] font-black uppercase text-neutral-400 tracking-[0.2em] mb-2">Total Spent</p>
+                      <p className="text-2xl font-black tracking-tighter dark:text-white">TK {userOrders.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Order History Section */}
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between px-1">
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Order History</h4>
+                      <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-800 mx-4" />
+                      <Badge variant="outline" className="text-[10px] font-black border-neutral-200 text-neutral-400">TRACKING</Badge>
+                    </div>
+
+                    {userOrders.length === 0 ? (
+                      <div className="text-center py-20 px-8 bg-white dark:bg-neutral-900 border border-dashed border-neutral-200 dark:border-neutral-800 rounded-[2.5rem] shadow-inner">
+                        <Package className="h-12 w-12 text-neutral-100 dark:text-neutral-800 mx-auto mb-4" />
+                        <p className="text-xs font-black text-neutral-400 uppercase tracking-widest mb-6">No purchase history</p>
+                        <Button 
+                          variant="outline" 
+                          className="rounded-full border-emerald-100 text-emerald-600 hover:bg-emerald-50 text-[10px] font-black uppercase tracking-widest h-10 px-6"
+                          onClick={() => {
+                            setIsProfileOpen(false);
+                            goToCategory('All');
+                          }}
+                        >
+                          Discover Clothing
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {userOrders.map((order, orderIdx) => (
+                          <motion.div 
+                            key={`${order.id}-${orderIdx}`}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: orderIdx * 0.1 }}
+                            className="group p-6 rounded-[2rem] border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm hover:shadow-xl transition-all relative overflow-hidden"
+                          >
+                            {/* Card Header */}
+                            <div className="flex justify-between items-start mb-6">
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-mono font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 rounded-full border border-emerald-100 dark:border-emerald-900/50">
+                                    #{order.id.slice(-8).toUpperCase()}
+                                  </span>
+                                  <Badge 
+                                    className={`text-[9px] uppercase font-black px-2.5 py-0.5 border-none tracking-widest ${
+                                      order.status === 'delivered' ? 'bg-emerald-500 text-white' :
+                                      order.status === 'processing' ? 'bg-blue-500 text-white' :
+                                      'bg-amber-400 text-white'
+                                    }`}
+                                  >
+                                    {order.status}
+                                  </Badge>
+                                </div>
+                                <p className="text-[10px] text-neutral-400 font-black uppercase tracking-tighter pl-1">
+                                  Ordered: {(() => {
+                                    try {
+                                      const date = (order.created_at as any)?.toDate ? (order.created_at as any).toDate() : 
+                                                  order.created_at ? new Date(order.created_at) : new Date();
+                                      return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+                                    } catch (e) {
+                                      return 'Recent Purchase';
+                                    }
+                                  })()}
+                                </p>
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-10 w-10 p-0 rounded-2xl hover:bg-emerald-50 dark:hover:bg-emerald-950/30 group/btn transition-all active:scale-90"
+                                onClick={() => generateInvoicePDF(order)}
+                                title="Download Invoice"
+                              >
+                                <FileText className="h-5 w-5 text-emerald-600 transition-transform group-hover/btn:scale-110" />
+                              </Button>
+                            </div>
+                            
+                            {/* Card Content: Items */}
+                            {order.items && order.items.length > 0 && (
+                              <div className="space-y-4 mb-8">
+                                {order.items.map((item, itemIdx) => (
+                                  <div key={`${order.id}-item-${itemIdx}`} className="flex gap-5 items-center group/item transition-transform hover:translate-x-1">
+                                    <div className="h-20 w-16 rounded-2xl bg-neutral-100 dark:bg-neutral-800 overflow-hidden flex-shrink-0 border dark:border-neutral-700 shadow-sm">
+                                      <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex justify-between items-start mb-2">
+                                        <div className="space-y-0.5">
+                                          <p className="text-sm font-black truncate text-neutral-900 dark:text-neutral-100 uppercase tracking-tight">{item.name || 'LIZ Dress'}</p>
+                                          {item.product_code && <p className="text-[9px] font-mono font-bold text-neutral-400">CODE: {item.product_code}</p>}
+                                        </div>
+                                        <p className="text-sm font-mono font-black text-emerald-600">TK {Number(item.price || 0).toLocaleString()}</p>
+                                      </div>
+                                      <div className="flex gap-3">
+                                        <span className="text-[9px] font-black uppercase text-neutral-500 bg-neutral-100 dark:bg-white/5 px-2.5 py-1 rounded-lg tracking-tighter border dark:border-white/10">Size: {item.size || 'N/A'}</span>
+                                        <span className="text-[9px] font-black uppercase text-neutral-500 bg-neutral-100 dark:bg-white/5 px-2.5 py-1 rounded-lg tracking-tighter border dark:border-white/10">Qty: {item.quantity || 1}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Card Content: Logistics */}
+                            <div className="p-5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-100 dark:border-neutral-800 mb-8 space-y-5">
+                              <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-1.5">
+                                  <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <UserIcon className="h-3 w-3" /> Recipient
+                                  </p>
+                                  <p className="text-[11px] font-black dark:text-white truncate">{order.customer_name || 'Customer'}</p>
+                                  <p className="text-[10px] font-mono font-black text-emerald-600">{order.phone || '01XXXXXXXXX'}</p>
+                                </div>
+                                <div className="space-y-1.5 text-right">
+                                  <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest flex items-center justify-end gap-1.5">
+                                    Delivery <Truck className="h-3 w-3" />
+                                  </p>
+                                  <p className="text-[10px] font-bold dark:text-neutral-300 capitalize">{order.delivery_location || 'Inside Dhaka'}</p>
+                                  <p className="text-[10px] font-mono font-black text-neutral-500">Charge: TK {Number(order.delivery_charge || 0).toLocaleString()}</p>
+                                </div>
+                              </div>
+                              <div className="pt-4 border-t border-neutral-200/50 dark:border-neutral-700/50">
+                                <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Shipping Destination</p>
+                                <p className="text-xs font-bold text-neutral-600 dark:text-neutral-400 leading-relaxed italic pr-4">
+                                  "{order.address || 'Standard Address'}"
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Card Footer: Billing & CTA */}
+                            <div className="flex items-end justify-between pt-6 border-t border-dotted dark:border-neutral-800">
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em] mb-1">Final Amount</p>
+                                <p className="text-3xl font-black text-neutral-900 dark:text-white tracking-tighter leading-none">
+                                  TK {Number(order.total_amount || 0).toLocaleString()}
+                                </p>
+                              </div>
+                              <Button 
+                                variant="outline" 
+                                className="rounded-2xl border-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white h-11 px-6 text-[10px] font-black uppercase tracking-[0.2em] shadow-sm transition-all hover:shadow-emerald-100 dark:hover:shadow-none hover:scale-105 active:scale-95"
+                                onClick={() => {
+                                  if (order.items) {
+                                    setCart(order.items.map(i => ({
+                                      id: i.id || '',
+                                      category: i.name,
+                                      price: i.price,
+                                      image: i.image,
+                                      cartQuantity: i.quantity,
+                                      selectedSize: i.size,
+                                      description: '',
+                                      stock: 10,
+                                      product_code: i.product_code || ''
+                                    })));
+                                    setIsCartOpen(true);
+                                    setIsProfileOpen(false);
+                                    setSaveStatus({ type: 'info', message: 'Items added from your past order!' });
+                                  }
+                                }}
+                              >
+                                Buy Again
+                              </Button>
+                            </div>
+                            
+                            {/* Decorative Background Accent */}
+                            <div className="absolute -right-8 -bottom-8 h-32 w-32 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Profile Settings Section */}
+                  <div className="space-y-6 pt-10 border-t dark:border-neutral-800 pb-12">
+                    <div className="flex items-center gap-3 px-1">
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Account Details</h4>
+                    </div>
+                    
+                    <div className="space-y-6 bg-white dark:bg-neutral-900 p-8 rounded-[2rem] border border-neutral-100 dark:border-neutral-800 shadow-sm">
+                      <div className="space-y-2.5">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 ml-1">Contact Phone</label>
+                        <Input 
+                          placeholder="01XXXXXXXXX"
+                          defaultValue={userProfile?.phone || ''}
+                          onBlur={(e) => updateProfile({ phone: e.target.value })}
+                          className="h-14 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border-none px-5 font-mono font-black placeholder:text-neutral-300"
+                        />
+                      </div>
+                      <div className="space-y-2.5">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 ml-1">Shipping Address</label>
+                        <textarea 
+                          placeholder="Area, Road, House No..."
+                          defaultValue={userProfile?.address || ''}
+                          onBlur={(e) => updateProfile({ address: e.target.value })}
+                          className="flex min-h-[120px] w-full rounded-2xl border-none bg-neutral-50 dark:bg-neutral-800/50 px-5 py-4 text-sm font-bold text-neutral-700 dark:text-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 transition-all resize-none shadow-inner"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 px-1 text-emerald-500">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <p className="text-[9px] font-black uppercase tracking-widest leading-none">Status: Connected & Secured</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sidebar Footer */}
+              <div className="p-6 border-t dark:border-neutral-800 bg-white dark:bg-neutral-900 flex-shrink-0">
+                <Button 
+                  variant="outline" 
+                  className="w-full h-14 rounded-2xl border-red-50 text-red-500 hover:bg-red-500 hover:text-white hover:border-red-500 font-black text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 active:scale-95"
+                  onClick={() => {
+                    handleLogout();
+                    setIsProfileOpen(false);
+                  }}
+                >
+                  <LogOut className="h-5 w-5" />
+                  Sign Out
+                </Button>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

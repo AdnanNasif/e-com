@@ -42,6 +42,17 @@ export interface Order {
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   created_at: string;
   items: OrderItem[];
+  user_id?: string;
+}
+
+export interface UserProfile {
+  id?: string;
+  email: string;
+  displayName: string;
+  phone?: string;
+  address?: string;
+  default_delivery_location?: 'inside' | 'outside';
+  created_at?: string;
 }
 
 export interface HomepageSettings {

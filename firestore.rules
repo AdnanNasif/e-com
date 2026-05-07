@@ -15,6 +15,22 @@ service cloud.firestore {
          (request.auth.token.email == "lizlifestylebd@gmail.com"));
     }
 
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function isValidProduct(data) {
       return data.keys().hasAll(['name', 'price', 'category']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
@@ -23,43 +39,62 @@ service cloud.firestore {
              (!data.keys().contains('product_code') || data.product_code is string);
     }
 
-    function isInventoryUpdate() {
-      // Allow updating ONLY the inventory field
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inventory', 'updated_at']);
-    }
-
     function isValidOrder(data) {
-      return data.keys().hasAll(['customer_name', 'phone', 'address', 'items', 'total_amount']) &&
-             data.customer_name is string && data.customer_name.size() > 0 && data.customer_name.size() < 100 &&
-             data.phone is string && data.phone.size() > 0 && data.phone.size() < 20 &&
-             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
-             data.items is list && data.items.size() > 0 && data.items.size() < 50 &&
-             data.total_amount is number && data.total_amount >= 0;
+      return data.keys().hasAll(['customer_name', 'phone', 'address', 'items', 'total_amount', 'delivery_charge', 'delivery_location', 'status', 'created_at']) &&
+             data.customer_name is string && data.customer_name.size() > 0 &&
+             data.phone is string && data.phone.size() > 0 &&
+             data.address is string && data.address.size() > 0 &&
+             data.items is list && data.items.size() > 0 &&
+             data.total_amount is number && data.total_amount >= 0 &&
+             data.delivery_charge is number &&
+             data.delivery_location in ['inside', 'outside'] &&
+             data.status in ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] &&
+             data.created_at == request.time &&
+             // Handle optional user_id correctly
+             (!data.keys().contains('user_id') || 
+              (data.user_id == null || (isAuthenticated() && data.user_id == request.auth.uid)));
     }
 
-    // ===============================================================
-    // Collection Rules
-    // ===============================================================
+    function isValidProfile(data) {
+      return data.keys().hasAll(['email', 'displayName']) &&
+             data.email is string && data.displayName is string;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isInventoryUpdate() {
+      // Allow updating ONLY the inventory and updated_at fields
+      return incoming().diff(existing()).affectedKeys().hasOnly(['inventory', 'updated_at']);
+    }
 
     // Products collection
     match /products/{productId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow create: if isAdmin() && isValidProduct(incoming());
       allow delete: if isAdmin();
-      allow update: if (isAdmin() && isValidProduct(request.resource.data)) || isInventoryUpdate();
+      allow update: if isAdmin() || isInventoryUpdate();
     }
 
     // Orders collection
     match /orders/{orderId} {
-      allow read: if isAdmin();
-      allow create: if isValidOrder(request.resource.data);
+      allow read: if isAdmin() || (isAuthenticated() && existing().user_id == request.auth.uid);
+      allow list: if isAdmin() || (isAuthenticated() && resource.data.user_id == request.auth.uid);
+      allow create: if isValidOrder(incoming());
       allow update, delete: if isAdmin();
     }
 
-    // Users collection (for role-based access)
+    // User profiles (Public or specific info)
+    match /user_profiles/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Legacy users collection (for role-based access)
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
     }
 
     // Settings collection
@@ -69,3 +104,4 @@ service cloud.firestore {
     }
   }
 }
+
