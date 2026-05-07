@@ -117,7 +117,63 @@ export default function App() {
     ]
   });
   const [isAddingItem, setIsAddingItem] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  const handleFileUpload = async (file: File, type: 'main' | 'additional', index?: number) => {
+    if (!file) return;
+    
+    if (!auth.currentUser) {
+      setSaveStatus({ type: 'error', message: 'You must be logged in as an admin to upload images.' });
+      return;
+    }
+
+    setIsUploading(true);
+    console.log(`Starting Cloudinary upload for ${file.name} (${type})...`);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+        } else {
+          const text = await response.text();
+          throw new Error(`Server returned non-JSON response (${response.status}): ${text.substring(0, 100)}...`);
+        }
+      }
+
+      const data = await response.json();
+      const downloadURL = data.url;
+      
+      console.log('File uploaded successfully to Cloudinary. URL:', downloadURL);
+      
+      if (type === 'main') {
+        setNewItemForm(prev => ({ ...prev, image: downloadURL }));
+      } else if (type === 'additional' && typeof index === 'number') {
+        setNewItemForm(prev => {
+          const newImages = [...prev.images];
+          newImages[index] = downloadURL;
+          return { ...prev, images: newImages };
+        });
+      }
+      
+      setSaveStatus({ type: 'success', message: 'Image uploaded successfully to Cloudinary.' });
+    } catch (error: any) {
+      console.error('Cloudinary upload failed:', error);
+      setSaveStatus({ type: 'error', message: `Upload failed: ${error.message}` });
+    } finally {
+      setIsUploading(false);
+    }
+  };
   const [homepageSettings, setHomepageSettings] = useState<HomepageSettings>({
     highlight_product_ids: [],
     featured_product_ids: [],
@@ -885,6 +941,11 @@ export default function App() {
     
     if (!newItemForm.category || !newItemForm.price || isNaN(parseFloat(newItemForm.price))) {
       setSaveStatus({ type: 'error', message: 'Please provide a valid category and price.' });
+      return;
+    }
+
+    if (!newItemForm.image) {
+      setSaveStatus({ type: 'error', message: 'Main image is required. Please upload an image.' });
       return;
     }
 
@@ -2178,18 +2239,57 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Main Product Image (URL)</label>
-                                <Input 
-                                  required
-                                  value={newItemForm.image}
-                                  onChange={(e) => setNewItemForm({...newItemForm, image: e.target.value})}
-                                  placeholder="Enter image URL..."
-                                />
-                                {newItemForm.image && (
-                                  <div className="mt-2 h-20 w-20 rounded border overflow-hidden bg-neutral-50">
-                                    <img src={newItemForm.image} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                                <label className="text-xs font-bold uppercase text-neutral-500">Main Product Image</label>
+                                <div className="flex flex-col gap-2">
+                                  <div className="relative">
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      id="main-image-upload"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleFileUpload(file, 'main');
+                                      }}
+                                    />
+                                    <Button 
+                                      type="button" 
+                                      variant="outline" 
+                                      className="w-full flex items-center justify-center gap-2 h-10 border-dashed"
+                                      onClick={() => document.getElementById('main-image-upload')?.click()}
+                                      disabled={isUploading}
+                                    >
+                                      {isUploading ? (
+                                        <>
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                          <span>Uploading...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Upload className="h-4 w-4" />
+                                          <span>{newItemForm.image ? 'Change Image' : 'Upload Image'}</span>
+                                        </>
+                                      )}
+                                    </Button>
                                   </div>
-                                )}
+                                  {newItemForm.image && (
+                                    <div className="relative h-24 w-24 rounded border overflow-hidden bg-neutral-50 group">
+                                      <img src={newItemForm.image} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                                      <Button 
+                                        type="button"
+                                        variant="destructive"
+                                        size="icon"
+                                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={() => setNewItemForm(prev => ({ ...prev, image: '' }))}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                  {!newItemForm.image && !isUploading && (
+                                    <p className="text-[10px] text-red-500 italic">Please upload a main image.</p>
+                                  )}
+                                </div>
                               </div>
                               <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase text-neutral-500">Product Video (URL)</label>
@@ -2206,54 +2306,75 @@ export default function App() {
                               </div>
                             </div>
                             <div className="space-y-2">
-                              <label className="text-xs font-bold uppercase text-neutral-500">Additional Images (URLs)</label>
-                              <div className="space-y-3">
+                              <label className="text-xs font-bold uppercase text-neutral-500">Additional Images</label>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                 {newItemForm.images.map((img, idx) => (
-                                  <div key={idx} className="flex gap-2 items-start">
-                                    <div className="flex-1 space-y-2">
-                                      <Input 
-                                        value={img}
-                                        onChange={(e) => {
-                                          const newImages = [...newItemForm.images];
-                                          newImages[idx] = e.target.value;
-                                          setNewItemForm({...newItemForm, images: newImages});
-                                        }}
-                                        placeholder="Enter image URL..."
-                                        className="h-8 text-xs"
-                                      />
-                                      {img && (
-                                        <div className="h-12 w-12 flex-shrink-0 rounded border overflow-hidden bg-neutral-50">
-                                          <img src={img} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-                                        </div>
-                                      )}
-                                    </div>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      type="button"
-                                      className="h-8 w-8"
-                                      onClick={() => {
-                                        const newImages = newItemForm.images.filter((_, i) => i !== idx);
-                                        setNewItemForm({...newItemForm, images: newImages});
-                                      }}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
+                                  <div key={idx} className="relative aspect-square flex flex-col gap-1">
+                                     {img ? (
+                                       <div className="relative h-full w-full rounded border overflow-hidden bg-neutral-50 group">
+                                         <img src={img} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
+                                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                           <Button 
+                                             type="button"
+                                             variant="secondary"
+                                             size="icon"
+                                             className="h-8 w-8"
+                                             onClick={() => document.getElementById(`additional-image-upload-${idx}`)?.click()}
+                                             disabled={isUploading}
+                                            >
+                                             <Upload className="h-4 w-4" />
+                                           </Button>
+                                           <Button 
+                                             type="button"
+                                             variant="destructive"
+                                             size="icon"
+                                             className="h-8 w-8"
+                                             onClick={() => {
+                                               const newImages = newItemForm.images.filter((_, i) => i !== idx);
+                                               setNewItemForm({...newItemForm, images: newImages});
+                                             }}
+                                           >
+                                             <X className="h-4 w-4" />
+                                           </Button>
+                                         </div>
+                                       </div>
+                                     ) : (
+                                       <Button 
+                                         type="button" 
+                                         variant="outline" 
+                                         className="h-full w-full flex flex-col items-center justify-center gap-2 border-dashed"
+                                         onClick={() => document.getElementById(`additional-image-upload-${idx}`)?.click()}
+                                         disabled={isUploading}
+                                       >
+                                         {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                         <span className="text-[10px]">Upload</span>
+                                       </Button>
+                                     )}
+                                     <input
+                                       type="file"
+                                       accept="image/*"
+                                       className="hidden"
+                                       id={`additional-image-upload-${idx}`}
+                                       onChange={(e) => {
+                                         const file = e.target.files?.[0];
+                                         if (file) handleFileUpload(file, 'additional', idx);
+                                       }}
+                                     />
                                   </div>
                                 ))}
                                 <Button 
-                                  variant="outline" 
-                                  size="sm" 
                                   type="button"
-                                  className="w-full border-dashed"
+                                  variant="outline"
+                                  className="aspect-square flex flex-col items-center justify-center gap-2 border-dashed"
                                   onClick={() => setNewItemForm({...newItemForm, images: [...newItemForm.images, '']})}
                                 >
-                                  <Plus className="h-3 w-3 mr-2" /> Add Image URL Slot
+                                  <Plus className="h-4 w-4" />
+                                  <span className="text-[10px]">Add Slot</span>
                                 </Button>
                               </div>
                             </div>
-                            <div className="space-y-2">
-                              <label className="text-xs font-bold uppercase text-neutral-500">Description</label>
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase text-neutral-500">Description</label>
                               <Input 
                                 required
                                 value={newItemForm.description}
@@ -2282,8 +2403,19 @@ export default function App() {
                               ))}
                             </div>
                             <div className="pt-4">
-                              <Button type="submit" className="w-full bg-neutral-900 text-white h-12">
-                                Save Product
+                              <Button 
+                                type="submit" 
+                                className="w-full bg-neutral-900 text-white h-12"
+                                disabled={isUploading}
+                              >
+                                {isUploading ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Uploading Image...
+                                  </>
+                                ) : (
+                                  editingItemId ? 'Update Product' : 'Save Product'
+                                )}
                               </Button>
                             </div>
                           </div>

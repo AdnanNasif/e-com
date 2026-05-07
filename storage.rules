@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /products/{allPaths=**} {
+      // Allow read access to everyone
+      allow read: if true;
+      // Allow write access only to authenticated users (admin logic should be here if needed)
+      // For now, allowing any authenticated user to upload to products/
+      allow write: if request.auth != null;
+    }
+  }
+}

@@ -2,10 +2,60 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { Resend } from 'resend';
+import { v2 as cloudinary } from 'cloudinary';
+import multer from 'multer';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Cloudinary Configuration
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+
+  const upload = multer({ storage: multer.memoryStorage() });
+
+  // Health check route
+  app.get('/api/health', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      env: {
+        cloudinary: !!process.env.CLOUDINARY_CLOUD_NAME,
+        resend: !!process.env.RESEND_API_KEY
+      }
+    });
+  });
+
+  // Cloudinary Upload Route - First to avoid body-parser issues
+  app.post('/api/upload', upload.single('file'), async (req, res) => {
+    console.log('[Cloudinary] Received upload request');
+    try {
+      if (!req.file) {
+        console.warn('[Cloudinary] No file in request');
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      console.log(`[Cloudinary] Uploading ${req.file.originalname} (${req.file.size} bytes)`);
+
+      // Upload to Cloudinary using buffer
+      const b64 = Buffer.from(req.file.buffer).toString('base64');
+      const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+      
+      const response = await cloudinary.uploader.upload(dataURI, {
+        folder: 'products',
+        resource_type: 'auto',
+      });
+
+      console.log('[Cloudinary] Upload successful:', response.secure_url);
+      res.status(200).json({ url: response.secure_url });
+    } catch (error: any) {
+      console.error('[Cloudinary] Upload Error:', error);
+      res.status(500).json({ error: 'Failed to upload image to Cloudinary.', details: error.message });
+    }
+  });
 
   app.use(express.json());
 
@@ -59,6 +109,16 @@ async function startServer() {
     } catch (error) {
       console.error('[Resend] Unexpected error:', error);
       res.status(500).json({ error: 'Failed to send email due to an unexpected server error.' });
+    }
+  });
+
+  // Generic error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Express Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    } else {
+      next(err);
     }
   });
 
