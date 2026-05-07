@@ -2092,7 +2092,7 @@ export default function App() {
                         goToProduct(item);
                         setActiveImageIdx(0);
                       }}>
-                        <div className="relative aspect-[4/5] overflow-hidden bg-neutral-50">
+                        <div className="relative aspect-4/5 overflow-hidden bg-neutral-50">
                           <img
                             src={item.image}
                             alt={item.name}
@@ -2144,7 +2144,7 @@ export default function App() {
                                 variant="outline"
                                 size="sm"
                                 disabled={inv.quantity === 0}
-                                className={`h-8 min-w-[2.5rem] px-2 text-[10px] font-bold ${inv.quantity === 0 ? 'opacity-50' : 'hover:bg-neutral-900 hover:text-white'
+                                className={`h-8 min-w-10 px-2 text-[10px] font-bold ${inv.quantity === 0 ? 'opacity-50' : 'hover:bg-neutral-900 hover:text-white'
                                   }`}
                                 onClick={() => addToCart(item, inv.size as any)}
                               >
@@ -2992,7 +2992,7 @@ export default function App() {
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {confirmDeleteId && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3026,7 +3026,7 @@ export default function App() {
         )}
 
         {confirmDeleteOrderId && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3060,7 +3060,7 @@ export default function App() {
         )}
 
         {showBulkDeleteProductsConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3098,7 +3098,7 @@ export default function App() {
         )}
 
         {showBulkDeleteOrdersConfirm && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3317,7 +3317,7 @@ export default function App() {
                     <div className="space-y-6">
                       {cart.map((item) => (
                         <div key={`${item.id}-${item.selectedSize}`} className="flex gap-4">
-                          <div className="h-24 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-neutral-100">
+                          <div className="h-24 w-20 shrink-0 overflow-hidden rounded-lg bg-neutral-100">
                             <img src={item.image} alt={item.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                           </div>
                           <div className="flex flex-1 flex-col justify-between">
@@ -3383,7 +3383,7 @@ export default function App() {
       {/* Image Zoom Modal */}
       <AnimatePresence>
         {zoomedImage && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12">
+          <div className="fixed inset-0 z-100 flex items-center justify-center p-4 md:p-12">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3394,7 +3394,7 @@ export default function App() {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-6 top-6 z-[110] text-white hover:bg-white/20"
+              className="absolute right-6 top-6 z-110 text-white hover:bg-white/20"
               onClick={() => setZoomedImage(null)}
             >
               <X className="h-8 w-8" />
@@ -3437,17 +3437,17 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsProfileOpen(false)}
-              className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm"
+              className="fixed inset-0 z-60 bg-black/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 z-[61] h-full w-full max-w-md bg-white dark:bg-neutral-900 shadow-2xl flex flex-col"
+              className="fixed right-0 top-0 z-61 h-full w-full max-w-md bg-white dark:bg-neutral-900 shadow-2xl flex flex-col"
             >
               {/* Sidebar Header */}
-              <div className="flex items-center justify-between border-b dark:border-neutral-800 p-6 flex-shrink-0">
+              <div className="flex items-center justify-between border-b dark:border-neutral-800 p-6 shrink-0">
                 <div className="flex items-center gap-3">
                   <UserIcon className="h-5 w-5 text-emerald-600" />
                   <h2 className="text-xl font-bold">My Account</h2>
@@ -3552,7 +3552,7 @@ export default function App() {
                               <div className="space-y-4 mb-8">
                                 {order.items.map((item, itemIdx) => (
                                   <div key={`${order.id}-item-${itemIdx}`} className="flex gap-5 items-center group/item transition-transform hover:translate-x-1">
-                                    <div className="h-20 w-16 rounded-2xl bg-neutral-100 dark:bg-neutral-800 overflow-hidden flex-shrink-0 border dark:border-neutral-700 shadow-sm">
+                                    <div className="h-20 w-16 rounded-2xl bg-neutral-100 dark:bg-neutral-800 overflow-hidden shrink-0 border dark:border-neutral-700 shadow-sm">
                                       <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" />
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -3676,7 +3676,7 @@ export default function App() {
               </div>
 
               {/* Sidebar Footer */}
-              <div className="p-6 border-t dark:border-neutral-800 bg-white dark:bg-neutral-900 flex-shrink-0">
+              <div className="p-6 border-t dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
                 <Button
                   variant="outline"
                   className="w-full h-14 rounded-2xl border-red-50 text-red-500 hover:bg-red-500 hover:text-white hover:border-red-500 font-black text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 active:scale-95"
@@ -3697,7 +3697,7 @@ export default function App() {
       {/* Checkout Modal */}
       <AnimatePresence>
         {isCheckoutOpen && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -3816,7 +3816,7 @@ export default function App() {
       {/* Order Success Modal */}
       <AnimatePresence>
         {orderSuccess && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-80 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
