@@ -121,8 +121,12 @@ export default function App() {
 
       // Browser-side call for deduplication
       if (typeof window !== 'undefined' && (window as any).fbq) {
-        (window as any).fbq('track', eventName, cleanData, { eventID: currentEventId });
-        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}`);
+        const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+        const options: any = { eventID: currentEventId };
+        if (testCode) options.test_event_code = testCode;
+
+        (window as any).fbq('track', eventName, cleanData, options);
+        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}${testCode ? ' (Test Mode)' : ''}`);
       }
 
       await fetch('/api/meta-event', {
