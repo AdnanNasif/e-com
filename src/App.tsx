@@ -237,6 +237,11 @@ export default function App() {
     }
   }, [location.pathname, selectedProduct?.id]);
 
+  const getImageFallback = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.src = 'https://images.unsplash.com/photo-1539109132332-629ee46067f1?q=80&w=800&auto=format&fit=crop';
+    e.currentTarget.onerror = null; // Prevent infinite loops
+  };
+
   const goToProduct = (item: ClothingItem | null) => {
     if (item) {
       navigate(`/product/${item.id}`);
@@ -1605,6 +1610,7 @@ export default function App() {
                           alt={selectedProduct.name}
                           className="h-full w-full object-contain"
                           referrerPolicy="no-referrer"
+                          onError={getImageFallback}
                         />
                       )}
                     </AnimatePresence>
@@ -1835,7 +1841,7 @@ export default function App() {
                                 setActiveImageIdx(0);
                               }}
                              >
-                               <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
+                               <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" onError={getImageFallback} />
                                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
                                <div className="absolute bottom-0 left-0 p-6 md:p-12 space-y-3 md:space-y-4 w-full">
                                  <div className="inline-flex">
@@ -1891,7 +1897,7 @@ export default function App() {
                              }}
                              className="group relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
                            >
-                             <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                             <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" onError={getImageFallback} />
                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                              <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300">
                                 <p className="text-[8px] font-mono font-black text-white/80 mb-1">{item.product_code}</p>
@@ -1944,7 +1950,7 @@ export default function App() {
                         }}
                       >
                         <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 dark:bg-neutral-900 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
-                          <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" loading="lazy" />
+                          <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" loading="lazy" onError={getImageFallback} />
                           <div className="absolute top-3 left-3 z-20">
                             <span className="inline-block px-3 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
                               {item.product_code}
@@ -2800,11 +2806,11 @@ export default function App() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
             <div className="space-y-6">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden bg-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden bg-black">
                   <img 
-                    src="/logo.png" 
+                    src="/logo_gold.png" 
                     alt="Liz Lifestyle" 
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain"
                     onError={(e) => {
                       e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                     }}
@@ -3220,7 +3226,7 @@ export default function App() {
                       {cart.map((item) => (
                         <div key={`${item.id}-${item.selectedSize}`} className="flex gap-4">
                           <div className="h-24 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-neutral-100">
-                            <img src={item.image} alt={item.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                            <img src={item.image} alt={item.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={getImageFallback} />
                           </div>
                           <div className="flex flex-1 flex-col justify-between">
                             <div>
