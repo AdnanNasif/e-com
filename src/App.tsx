@@ -4,8 +4,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Helmet } from 'react-helmet-async';
-import { trackEvent } from './lib/tracking';
 import { 
   ShoppingBag, 
   Search, 
@@ -200,42 +198,6 @@ export default function App() {
     }
     setIsMenuOpen(false);
   };
-
-  // Track PageViews & Dynamic SEO
-  useEffect(() => {
-    const pixelId = import.meta.env.VITE_FB_PIXEL_ID;
-    
-    if (typeof window !== 'undefined' && (window as any).fbq) {
-      if (pixelId && ! (window as any)._fbq_initialized) {
-        console.log(`[Meta Pixel] Initializing with ID: ${pixelId}`);
-        (window as any).fbq('init', pixelId);
-        (window as any)._fbq_initialized = true;
-      }
-    }
-
-    // Standard PageView tracking via both Browser and Server
-    trackEvent({
-      eventName: 'PageView',
-      customData: {
-        path: location.pathname,
-        title: document.title
-      }
-    });
-
-    if (selectedProduct) {
-      trackEvent({
-        eventName: 'ViewContent',
-        customData: {
-          content_name: selectedProduct.name,
-          content_category: selectedProduct.category,
-          content_ids: [selectedProduct.id],
-          content_type: 'product',
-          value: selectedProduct.price,
-          currency: 'BDT'
-        }
-      });
-    }
-  }, [location.pathname, selectedProduct?.id]);
 
   const goToProduct = (item: ClothingItem | null) => {
     if (item) {
@@ -708,19 +670,6 @@ export default function App() {
 
 
   const addToCart = (item: ClothingItem, size: string) => {
-    // Track AddToCart event
-    trackEvent({
-      eventName: 'AddToCart',
-      customData: {
-        content_name: item.name,
-        content_category: item.category,
-        content_ids: [item.id],
-        content_type: 'product',
-        value: item.price,
-        currency: 'BDT'
-      }
-    });
-
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
     const inventoryItem = item.inventory.find(i => i.size === size);
     if (!inventoryItem || inventoryItem.quantity <= 0) return;
@@ -872,26 +821,6 @@ export default function App() {
       };
 
       const docRef = await addDoc(collection(db, 'orders'), orderData);
-      
-      // Track Purchase event
-      trackEvent({
-        eventName: 'Purchase',
-        userData: {
-          em: checkoutForm.phone + '@lizlifestyle.com', // Fallback email if not available
-          ph: checkoutForm.phone,
-          fn: checkoutForm.customer_name.split(' ')[0],
-          ln: checkoutForm.customer_name.split(' ').slice(1).join(' ')
-        },
-        customData: {
-          content_ids: cart.map(item => item.id),
-          content_type: 'product',
-          value: finalTotal,
-          currency: 'BDT',
-          num_items: cart.reduce((acc, item) => acc + item.cartQuantity, 0)
-        },
-        eventId: docRef.id
-      });
-
       const fullOrder = { ...orderData, id: docRef.id };
       setLastOrder(fullOrder);
       
@@ -1234,37 +1163,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 font-sans text-neutral-900 dark:text-foreground transition-colors duration-300">
-      <Helmet>
-        <title>{selectedProduct ? `${selectedProduct.category} | ${selectedProduct.product_code} - Liz Lifestyle` : (selectedCategory !== 'All' ? `${selectedCategory} Collection - Liz Lifestyle` : "Liz Lifestyle | Premium Fashion & Elegant Apparel")}</title>
-        <meta name="description" content={selectedProduct ? selectedProduct.description.substring(0, 160) : "Shop the latest in premium fashion at Liz Lifestyle. Discover elegant dresses and exclusive collections."} />
-        <meta property="og:title" content={selectedProduct ? `${selectedProduct.category} - Liz Lifestyle` : "Liz Lifestyle | Premium Fashion"} />
-        <meta property="og:description" content={selectedProduct ? selectedProduct.description.substring(0, 160) : "Discover curated collections of elegant apparel."} />
-        <meta property="og:url" content={window.location.href} />
-        
-        {selectedProduct && (
-          <script type="application/ld+json">
-            {JSON.stringify({
-              "@context": "https://schema.org/",
-              "@type": "Product",
-              "name": selectedProduct.name,
-              "image": [selectedProduct.image],
-              "description": selectedProduct.description,
-              "sku": selectedProduct.product_code,
-              "brand": {
-                "@type": "Brand",
-                "name": "Liz Lifestyle"
-              },
-              "offers": {
-                "@type": "Offer",
-                "url": window.location.href,
-                "priceCurrency": "BDT",
-                "price": selectedProduct.price,
-                "availability": selectedProduct.inventory.some(i => i.quantity > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
-              }
-            })}
-          </script>
-        )}
-      </Helmet>
       {/* Header */}
       <header className="sticky top-0 z-40 w-full border-b dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-sm">
         <div className="container mx-auto flex h-20 items-center justify-between px-4">
@@ -1283,10 +1181,9 @@ export default function App() {
             }}>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-[0_8px_20px_-6px_rgba(0,0,0,0.3)] transition-all duration-500 group-hover:scale-110">
                 <img 
-                  src="/logo.png" 
+                  src="/logo_gold.png" 
                   alt="Liz Lifestyle Logo" 
                   className="h-full w-full object-contain" 
-                  referrerPolicy="no-referrer"
                   onError={(e) => {
                     e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                   }}
@@ -1353,7 +1250,7 @@ export default function App() {
                   title="My Account"
                 >
                   {user.photoURL ? (
-                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
                       {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
@@ -1416,10 +1313,9 @@ export default function App() {
                 }}>
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-lg">
                     <img 
-                      src="/logo.png" 
+                      src="/logo_gold.png" 
                       alt="Liz Lifestyle Logo" 
                       className="h-full w-full object-contain" 
-                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                       }}
@@ -1837,12 +1733,7 @@ export default function App() {
                                 setActiveImageIdx(0);
                               }}
                              >
-                               <img 
-                                 src={item.image || (item.images && item.images[0]) || 'https://placehold.co/800x1000?text=Premium+Selection'} 
-                                 alt={item.category} 
-                                 className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" 
-                                 referrerPolicy="no-referrer" 
-                               />
+                               <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-[2000ms] group-hover:scale-105" referrerPolicy="no-referrer" />
                                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-black/80 via-black/20 to-transparent" />
                                <div className="absolute bottom-0 left-0 p-6 md:p-12 space-y-3 md:space-y-4 w-full">
                                  <div className="inline-flex">
@@ -1898,12 +1789,7 @@ export default function App() {
                              }}
                              className="group relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
                            >
-                             <img 
-                               src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'} 
-                               alt={item.category} 
-                               className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" 
-                               referrerPolicy="no-referrer" 
-                             />
+                             <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                              <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300">
                                 <p className="text-[8px] font-mono font-black text-white/80 mb-1">{item.product_code}</p>
@@ -1956,13 +1842,7 @@ export default function App() {
                         }}
                       >
                         <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-neutral-50 dark:bg-neutral-900 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
-                          <img 
-                            src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'} 
-                            alt={item.category} 
-                            className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" 
-                            referrerPolicy="no-referrer" 
-                            loading="lazy" 
-                          />
+                          <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" loading="lazy" />
                           <div className="absolute top-3 left-3 z-20">
                             <span className="inline-block px-3 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
                               {item.product_code}
@@ -2082,7 +1962,7 @@ export default function App() {
                     }}>
                       <div className="relative aspect-[4/5] overflow-hidden bg-neutral-50">
                         <img
-                          src={item.image || (item.images && item.images[0]) || 'https://placehold.co/600x800?text=Product'}
+                          src={item.image}
                           alt={item.name}
                           className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-105"
                           referrerPolicy="no-referrer"
@@ -2440,12 +2320,7 @@ export default function App() {
                               />
                             </div>
                             <div className="col-span-2 flex items-center gap-3">
-                              <img 
-                                src={item.image || (item.images && item.images[0]) || 'https://placehold.co/100x100?text=Product'} 
-                                alt={item.category} 
-                                className="h-10 w-10 rounded-md object-cover" 
-                                referrerPolicy="no-referrer" 
-                              />
+                              <img src={item.image} alt={item.category} className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {item.product_code && (
@@ -2559,12 +2434,7 @@ export default function App() {
                         className="group relative aspect-square rounded-lg overflow-hidden border bg-neutral-100"
                       >
                         {type === 'image' ? (
-                          <img 
-                            src={url || 'https://placehold.co/400x400?text=Image'} 
-                            alt={itemName} 
-                            className="h-full w-full object-cover transition-transform group-hover:scale-110" 
-                            referrerPolicy="no-referrer" 
-                          />
+                          <img src={url} alt={itemName} className="h-full w-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
                         ) : (
                           <div className="h-full w-full bg-neutral-900 flex items-center justify-center">
                             <Sparkles className="h-8 w-8 text-white/20" />
@@ -2665,12 +2535,7 @@ export default function App() {
                               </select>
                             </div>
                             {product && (
-                              <img 
-                                src={product.image || 'https://placehold.co/100x100?text=Product'} 
-                                className="w-10 h-10 object-cover rounded-md" 
-                                alt="" 
-                                referrerPolicy="no-referrer" 
-                              />
+                              <img src={product.image} className="w-10 h-10 object-cover rounded-md" alt="" referrerPolicy="no-referrer" />
                             )}
                           </div>
                         );
@@ -2756,12 +2621,7 @@ export default function App() {
                                   <div className="flex -space-x-2">
                                     {order.items.map((item, idx) => (
                                       <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`[${item.product_code || 'N/A'}] ${item.category} (${item.size}) x${item.quantity}`}>
-                                        <img 
-                                          src={item.image || 'https://placehold.co/100x100?text=Product'} 
-                                          alt="" 
-                                          className="h-full w-full object-cover" 
-                                          referrerPolicy="no-referrer" 
-                                        />
+                                        <img src={item.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                                       </div>
                                     ))}
                                     {order.items.length > 3 && (
@@ -2843,7 +2703,6 @@ export default function App() {
                     src="/logo.png" 
                     alt="Liz Lifestyle" 
                     className="h-full w-full object-cover"
-                    referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
                     }}
@@ -3192,7 +3051,7 @@ export default function App() {
                     variant="outline"
                     className="w-full border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 h-14 rounded-2xl font-bold flex items-center justify-center gap-3 transition-colors"
                   >
-                    <img src="https://www.google.com/favicon.ico" alt="Google" className="h-5 w-5" referrerPolicy="no-referrer" />
+                    <img src="https://www.google.com/favicon.ico" alt="Google" className="h-5 w-5" />
                     Google Account
                   </Button>
                 </div>
@@ -3259,12 +3118,7 @@ export default function App() {
                       {cart.map((item) => (
                         <div key={`${item.id}-${item.selectedSize}`} className="flex gap-4">
                           <div className="h-24 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-neutral-100">
-                            <img 
-                              src={item.image || 'https://placehold.co/400x500?text=Product'} 
-                              alt={item.name} 
-                              className="h-full w-full object-cover" 
-                              referrerPolicy="no-referrer" 
-                            />
+                            <img src={item.image} alt={item.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                           </div>
                           <div className="flex flex-1 flex-col justify-between">
                             <div>
@@ -3306,20 +3160,7 @@ export default function App() {
                   <Button 
                     className="w-full h-12 bg-neutral-900 text-white hover:bg-neutral-800" 
                     disabled={cart.length === 0}
-                    onClick={() => {
-                      // Track InitiateCheckout
-                      trackEvent({
-                        eventName: 'InitiateCheckout',
-                        customData: {
-                          content_ids: cart.map(item => item.id),
-                          content_type: 'product',
-                          value: totalCartPrice,
-                          currency: 'BDT',
-                          num_items: cart.reduce((acc, item) => acc + item.cartQuantity, 0)
-                        }
-                      });
-                      setIsCheckoutOpen(true)
-                    }}
+                    onClick={() => setIsCheckoutOpen(true)}
                   >
                     Checkout
                   </Button>
@@ -3504,7 +3345,7 @@ export default function App() {
                                 {order.items.map((item, itemIdx) => (
                                   <div key={`${order.id}-item-${itemIdx}`} className="flex gap-5 items-center group/item transition-transform hover:translate-x-1">
                                     <div className="h-20 w-16 rounded-2xl bg-neutral-100 dark:bg-neutral-800 overflow-hidden flex-shrink-0 border dark:border-neutral-700 shadow-sm">
-                                      <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" referrerPolicy="no-referrer" />
+                                      <img src={item.image || 'https://placehold.co/400x500?text=Dress'} alt={item.name} className="h-full w-full object-cover transition-transform group-hover/item:scale-110" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex justify-between items-start mb-2">
