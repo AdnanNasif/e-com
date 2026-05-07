@@ -33,8 +33,6 @@ import {
   Menu,
   Maximize2,
   Sparkles,
-  RefreshCw,
-  Cloud,
   LogIn,
   Download,
   FileText,
@@ -278,91 +276,6 @@ export default function App() {
   const [showBulkDeleteProductsConfirm, setShowBulkDeleteProductsConfirm] = useState(false);
   const [showBulkDeleteOrdersConfirm, setShowBulkDeleteOrdersConfirm] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
-  const [migrationStatus, setMigrationStatus] = useState<{current: number, total: number} | null>(null);
-
-  const migrateToCloudinary = async () => {
-    if (!isAdmin || isMigrating) return;
-    
-    const itemsToMigrate = items.filter(item => {
-      const isFirebase = (url: string) => url.includes('firebasestorage.googleapis.com') || (url.includes('fbcdn.net'));
-      const needsMain = item.image && isFirebase(item.image);
-      const needsAdditional = item.images?.some(url => isFirebase(url));
-      return needsMain || needsAdditional;
-    });
-
-    if (itemsToMigrate.length === 0) {
-      alert('No images found that need migration.');
-      return;
-    }
-
-    if (!confirm(`Found ${itemsToMigrate.length} products with old image URLs. Migrate them to Cloudinary now?`)) {
-      return;
-    }
-
-    setIsMigrating(true);
-    setMigrationStatus({ current: 0, total: itemsToMigrate.length });
-
-    try {
-      for (let i = 0; i < itemsToMigrate.length; i++) {
-        const item = itemsToMigrate[i];
-        let updatedImage = item.image;
-        let updatedImages = [...(item.images || [])];
-        let hasChanges = false;
-
-        const isFirebase = (url: string) => url.includes('firebasestorage.googleapis.com') || (url.includes('fbcdn.net'));
-
-        // Handle main image
-        if (updatedImage && isFirebase(updatedImage)) {
-          const res = await fetch('/api/migrate-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageUrl: updatedImage })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            updatedImage = data.url;
-            hasChanges = true;
-          }
-        }
-
-        // Handle additional images
-        for (let j = 0; j < updatedImages.length; j++) {
-          if (updatedImages[j] && isFirebase(updatedImages[j])) {
-            const res = await fetch('/api/migrate-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ imageUrl: updatedImages[j] })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              updatedImages[j] = data.url;
-              hasChanges = true;
-            }
-          }
-        }
-
-        if (hasChanges) {
-          await updateDoc(doc(db, 'products', item.id), {
-            image: updatedImage,
-            images: updatedImages,
-            updatedAt: serverTimestamp()
-          });
-        }
-
-        setMigrationStatus({ current: i + 1, total: itemsToMigrate.length });
-      }
-
-      alert(`Successfully migrated ${itemsToMigrate.length} products to Cloudinary.`);
-    } catch (err: any) {
-      console.error('Migration failed:', err);
-      alert(`Migration failed: ${err.message}`);
-    } finally {
-      setIsMigrating(false);
-      setMigrationStatus(null);
-    }
-  };
-
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
@@ -2762,43 +2675,7 @@ export default function App() {
                     </div>
                   </CardContent>
                 </Card>
-
-                <Card className="border-none shadow-sm h-fit">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5 text-neutral-500" />
-                      Storage Migration
-                    </CardTitle>
-                    <CardDescription>Found old products with broken images? Automatically transfer them to Cloudinary.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 text-center py-10">
-                    <div className="mx-auto w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mb-2">
-                      <Cloud className="h-8 w-8 text-amber-500" />
-                    </div>
-                    <p className="text-sm text-neutral-500 max-w-xs mx-auto">
-                      This will scan all your products for Firebase Storage links and transfer them to your Cloudinary account.
-                    </p>
-                    <Button 
-                      onClick={migrateToCloudinary} 
-                      disabled={isMigrating}
-                      className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl h-12 px-8 flex items-center justify-center gap-2"
-                    >
-                      {isMigrating ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Migrating ({migrationStatus?.current}/{migrationStatus?.total})</span>
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="h-4 w-4" />
-                          <span>Start Migration</span>
-                        </>
-                      )}
-                    </Button>
-                  </CardContent>
-                </Card>
               </div>
-
               </TabsContent>
 
               <TabsContent value="orders" className="mt-0">

@@ -57,29 +57,6 @@ async function startServer() {
     }
   });
 
-  // Cloudinary Migration Route - Upload from existing URL
-  app.post('/api/migrate-image', async (req, res) => {
-    const { imageUrl } = req.body;
-    if (!imageUrl) {
-      return res.status(400).json({ error: 'No image URL provided' });
-    }
-
-    try {
-      console.log(`[Cloudinary] Migrating URL: ${imageUrl.substring(0, 50)}...`);
-      
-      const response = await cloudinary.uploader.upload(imageUrl, {
-        folder: 'products',
-        resource_type: 'auto',
-      });
-
-      console.log('[Cloudinary] Migration successful:', response.secure_url);
-      res.status(200).json({ url: response.secure_url });
-    } catch (error: any) {
-      console.error('[Cloudinary] Migration Error:', error);
-      res.status(500).json({ error: 'Failed to migrate image to Cloudinary.', details: error.message });
-    }
-  });
-
   app.use(express.json());
 
   // API Route for sending email
