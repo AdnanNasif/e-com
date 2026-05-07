@@ -95,6 +95,7 @@ async function startServer() {
           custom_data: customData,
         },
       ],
+      test_event_code: process.env.META_TEST_EVENT_CODE || undefined,
     };
 
     try {
