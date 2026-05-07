@@ -125,6 +125,17 @@ export default function App() {
         const options: any = { eventID: currentEventId };
         if (testCode) options.test_event_code = testCode;
 
+        // If we have user data, we can also send it to the browser pixel
+        // We'll use the same format as the server-side call
+        if (userData.email || userData.phone) {
+          (window as any).fbq('setUserVars', {
+            em: userData.email?.toLowerCase().trim(),
+            ph: userData.phone?.replace(/\D/g, ''),
+            fn: userData.fn?.toLowerCase().trim(),
+            ln: userData.ln?.toLowerCase().trim(),
+          });
+        }
+
         (window as any).fbq('track', eventName, cleanData, options);
         console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}${testCode ? ' (Test Mode)' : ''}`);
       }
