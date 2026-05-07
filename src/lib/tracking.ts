@@ -26,9 +26,12 @@ async function hashString(str: string): Promise<string> {
 }
 
 export const trackEvent = async ({ eventName, userData, customData, eventId }: TrackEventParams) => {
+  const testCode = import.meta.env.VITE_FB_TEST_CODE;
+  
   // 1. Browser-side tracking (Pixel)
   if (typeof window !== 'undefined' && (window as any).fbq) {
     (window as any).fbq('track', eventName, customData, { eventID: eventId });
+    console.debug(`[Tracking] Pixel: ${eventName}`, customData);
   }
 
   // 2. Server-side tracking (CAPI Proxy)
@@ -40,7 +43,7 @@ export const trackEvent = async ({ eventName, userData, customData, eventId }: T
       ln: userData.ln ? await hashString(userData.ln) : undefined,
     } : {};
 
-    await fetch('/api/fb-tracking', {
+    const response = await fetch('/api/v1/analytics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -50,8 +53,12 @@ export const trackEvent = async ({ eventName, userData, customData, eventId }: T
         user_data: hashedUserData,
         custom_data: customData,
         event_source_url: window.location.href,
+        test_event_code: testCode, // Optional: for Meta Test Events tab
       }),
     });
+    
+    const result = await response.json();
+    console.debug(`[Tracking] CAPI Status:`, result.status || 'Sent');
   } catch (error) {
     console.warn('[Tracking] CAPI track failed:', error);
   }

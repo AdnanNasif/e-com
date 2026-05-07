@@ -201,14 +201,20 @@ export default function App() {
     setIsMenuOpen(false);
   };
 
-  // Initialize Meta Pixel
+  // Initialize Meta Pixel & Track PageViews
   useEffect(() => {
     const pixelId = import.meta.env.VITE_FB_PIXEL_ID;
     if (pixelId && typeof window !== 'undefined' && (window as any).fbq) {
-      (window as any).fbq('init', pixelId);
+      if (! (window as any)._fbq_initialized) {
+        console.log(`[Meta Pixel] Initializing with ID: ${pixelId}`);
+        (window as any).fbq('init', pixelId);
+        (window as any)._fbq_initialized = true;
+      }
       (window as any).fbq('track', 'PageView');
+    } else if (!pixelId) {
+      console.warn('[Meta Pixel] VITE_FB_PIXEL_ID is missing in environment variables. Pixel not initialized.');
     }
-  }, []);
+  }, [location.pathname]);
 
   const goToProduct = (item: ClothingItem | null) => {
     if (item) {

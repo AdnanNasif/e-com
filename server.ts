@@ -62,9 +62,9 @@ async function startServer() {
     }
   });
 
-  // Meta Conversion API (CAPI) Proxy
-  app.post('/api/fb-tracking', async (req, res) => {
-    const { event_name, event_time, event_id, user_data, custom_data, event_source_url } = req.body;
+  // Event Analytics Gateway (Proxy for CAPI)
+  app.post('/api/v1/analytics', async (req, res) => {
+    const { event_name, event_time, event_id, user_data, custom_data, event_source_url, test_event_code } = req.body;
     const pixelId = process.env.VITE_FB_PIXEL_ID;
     const accessToken = process.env.FB_ACCESS_TOKEN;
 
@@ -87,7 +87,8 @@ async function startServer() {
             ...user_data
           },
           custom_data
-        }]
+        }],
+        test_event_code: req.body.test_event_code // Pass through for testing
       };
 
       const response = await fetch(`https://graph.facebook.com/v17.0/${pixelId}/events?access_token=${accessToken}`, {
