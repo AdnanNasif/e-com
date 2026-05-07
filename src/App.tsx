@@ -115,9 +115,13 @@ export default function App() {
         fbp: getCookie('_fbp'),
       };
 
+      // Ensure numeric values for Meta
+      const cleanData = { ...customData };
+      if (cleanData.value) cleanData.value = Number(cleanData.value);
+
       // Browser-side call for deduplication
       if (typeof window !== 'undefined' && (window as any).fbq) {
-        (window as any).fbq('track', eventName, customData, { eventID: currentEventId });
+        (window as any).fbq('track', eventName, cleanData, { eventID: currentEventId });
         console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}`);
       }
 
@@ -127,7 +131,7 @@ export default function App() {
         body: JSON.stringify({
           eventName,
           userData,
-          customData,
+          customData: cleanData,
           eventSourceUrl: window.location.href,
           eventId: currentEventId,
         }),

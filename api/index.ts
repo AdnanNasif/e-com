@@ -112,9 +112,13 @@ app.post('/api/send-email', async (req, res) => {
       subject,
       html,
     });
-    if (error) return res.status(500).json(error);
+    if (error) {
+      console.error('[Email Error] Resend API error:', error);
+      return res.status(500).json({ error: error.message, details: error });
+    }
     res.json(data);
   } catch (error: any) {
+    console.error('[Email Error] Unexpected error:', error);
     res.status(500).json({ error: error.message });
   }
 });
