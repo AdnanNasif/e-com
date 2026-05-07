@@ -107,10 +107,10 @@ export default function App() {
       const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       const userData = {
-        email: user?.email || userProfile?.email || undefined,
-        phone: userProfile?.phone || undefined,
-        fn: userProfile?.displayName?.split(' ')[0] || undefined,
-        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || undefined,
+        email: user?.email || userProfile?.email || checkoutForm.email || undefined,
+        phone: userProfile?.phone || checkoutForm.phone || undefined,
+        fn: userProfile?.displayName?.split(' ')[0] || checkoutForm.name?.split(' ')[0] || undefined,
+        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || checkoutForm.name?.split(' ').slice(1).join(' ') || undefined,
         fbc: getCookie('_fbc'),
         fbp: getCookie('_fbp'),
       };
