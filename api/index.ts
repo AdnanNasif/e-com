@@ -96,7 +96,7 @@ app.post('/api/meta-event', async (req, res) => {
   };
 
   const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl, eventId);
-  res.json({ success: true, result });
+  res.json({ success: true, result, debug: { enrichedUserData, eventId } });
 });
 
 app.post('/api/send-email', async (req, res) => {
