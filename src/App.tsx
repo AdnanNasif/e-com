@@ -107,10 +107,10 @@ export default function App() {
       const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       const userData = {
-        email: user?.email || userProfile?.email || undefined,
-        phone: userProfile?.phone || undefined,
-        fn: userProfile?.displayName?.split(' ')[0] || undefined,
-        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || undefined,
+        email: user?.email || userProfile?.email || checkoutForm.email || undefined,
+        phone: userProfile?.phone || checkoutForm.phone || undefined,
+        fn: userProfile?.displayName?.split(' ')[0] || checkoutForm.name?.split(' ')[0] || undefined,
+        ln: userProfile?.displayName?.split(' ').slice(1).join(' ') || checkoutForm.name?.split(' ').slice(1).join(' ') || undefined,
         fbc: getCookie('_fbc'),
         fbp: getCookie('_fbp'),
       };
@@ -121,8 +121,12 @@ export default function App() {
 
       // Browser-side call for deduplication
       if (typeof window !== 'undefined' && (window as any).fbq) {
-        (window as any).fbq('track', eventName, cleanData, { eventID: currentEventId });
-        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}`);
+        const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+        const options: any = { eventID: currentEventId };
+        if (testCode) options.test_event_code = testCode;
+
+        (window as any).fbq('track', eventName, cleanData, options);
+        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}${testCode ? ' (Test Mode)' : ''}`);
       }
 
       await fetch('/api/meta-event', {
