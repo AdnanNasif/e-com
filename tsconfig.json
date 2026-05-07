@@ -23,6 +23,12 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src", "api"],
+  "exclude": ["node_modules"]
 }
