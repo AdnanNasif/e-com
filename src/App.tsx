@@ -131,23 +131,28 @@ export default function App() {
       // Browser-side call for deduplication
       if (typeof window !== 'undefined' && (window as any).fbq) {
         const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+        const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
         const options: any = { eventID: currentEventId };
         if (testCode) options.test_event_code = testCode;
 
-        // If we have user data, add it to the options for Advanced Matching
+        // Correct way to send Advanced Matching: Update the 'init' state
         if (userData.email || userData.phone) {
           const hashedEmail = await hashString(userData.email);
           const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
           const hashedFn = await hashString(userData.fn);
           const hashedLn = await hashString(userData.ln);
 
-          options.external_id = currentEventId; // Also help matching with a unique ID
-          options.user_data = {
+          // We call init again with the user data. Meta's script handles multiple init calls
+          // and updates the user context for subsequent track calls.
+          (window as any).fbq('init', pixelId, {
             em: hashedEmail,
             ph: hashedPhone,
             fn: hashedFn,
-            ln: hashedLn
-          };
+            ln: hashedLn,
+            external_id: currentEventId
+          });
+          
+          options.external_id = currentEventId;
         }
 
         (window as any).fbq('track', eventName, cleanData, options);
