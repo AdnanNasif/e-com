@@ -119,20 +119,33 @@ export default function App() {
       const cleanData = { ...customData };
       if (cleanData.value) cleanData.value = Number(cleanData.value);
 
+      // Simple hashing function for the browser
+      const hashString = async (str: string) => {
+        if (!str) return undefined;
+        const msgUint8 = new TextEncoder().encode(str.trim().toLowerCase());
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      };
+
       // Browser-side call for deduplication
       if (typeof window !== 'undefined' && (window as any).fbq) {
         const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
         const options: any = { eventID: currentEventId };
         if (testCode) options.test_event_code = testCode;
 
-        // If we have user data, we can also send it to the browser pixel
-        // We'll use the same format as the server-side call
+        // If we have user data, hash it and send it
         if (userData.email || userData.phone) {
+          const hashedEmail = await hashString(userData.email);
+          const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
+          const hashedFn = await hashString(userData.fn);
+          const hashedLn = await hashString(userData.ln);
+
           (window as any).fbq('setUserVars', {
-            em: userData.email?.toLowerCase().trim(),
-            ph: userData.phone?.replace(/\D/g, ''),
-            fn: userData.fn?.toLowerCase().trim(),
-            ln: userData.ln?.toLowerCase().trim(),
+            em: hashedEmail,
+            ph: hashedPhone,
+            fn: hashedFn,
+            ln: hashedLn,
           });
         }
 
