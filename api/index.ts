@@ -20,9 +20,9 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     environment: 'vercel',
     meta: {
-      pixel_id: !!process.env.META_PIXEL_ID,
-      token: !!process.env.META_ACCESS_TOKEN ? 'LOADED' : 'MISSING',
-      test_code: !!process.env.META_TEST_EVENT_CODE
+      pixel_id: !!(process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID),
+      token: !!(process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN) ? 'LOADED' : 'MISSING',
+      test_code: !!(process.env.META_TEST_EVENT_CODE || process.env.VITE_META_TEST_EVENT_CODE)
     },
     resend: !!process.env.RESEND_API_KEY
   });
@@ -38,12 +38,15 @@ app.use((req, res, next) => {
 });
 
 // Meta Event Helper
-const sendMetaEvent = async (eventName: string, userData: any, customData: any = {}, eventSourceUrl: string = '', eventId?: string) => {
-  const pixelId = process.env.META_PIXEL_ID;
-  const accessToken = process.env.META_ACCESS_TOKEN;
-  const testEventCode = process.env.META_TEST_EVENT_CODE;
+const sendMetaEvent = async (eventName: string, userData: any, customData: any = {}, eventSourceUrl: string = '', eventId?: string, overrideTestCode?: string) => {
+  const pixelId = process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID;
+  const accessToken = process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN;
+  const testEventCode = overrideTestCode || process.env.META_TEST_EVENT_CODE || process.env.VITE_META_TEST_EVENT_CODE;
 
-  if (!pixelId || !accessToken) return { error: 'Missing Meta credentials' };
+  if (!pixelId || !accessToken) {
+    console.warn('[Meta CAPI] Missing credentials:', { pixelId: !!pixelId, accessToken: !!accessToken });
+    return { error: 'Missing Meta credentials' };
+  }
 
   const hash = (data: string) => {
     if (!data) return undefined;
@@ -87,23 +90,24 @@ const sendMetaEvent = async (eventName: string, userData: any, customData: any =
 
 // Routes
 app.post('/api/meta-event', async (req, res) => {
-  const { eventName, userData, customData, eventSourceUrl, eventId } = req.body;
+  const { eventName, userData, customData, eventSourceUrl, eventId, testEventCode: clientTestCode } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  
   const enrichedUserData = {
     ...userData,
     client_user_agent: req.headers['user-agent'],
     client_ip_address: Array.isArray(clientIp) ? clientIp[0] : clientIp?.split(',')[0].trim(),
   };
 
-  const testEventCode = process.env.META_TEST_EVENT_CODE;
-  const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl, eventId);
+  const result = await sendMetaEvent(eventName, enrichedUserData, customData, eventSourceUrl, eventId, clientTestCode);
+  
   res.json({ 
     success: true, 
     result, 
     debug: { 
       enrichedUserData, 
       eventId,
-      testCodeActive: !!testEventCode 
+      testCodeUsed: !!(clientTestCode || process.env.META_TEST_EVENT_CODE || process.env.VITE_META_TEST_EVENT_CODE)
     } 
   });
 });
