@@ -159,6 +159,8 @@ export default function App() {
         console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}${testCode ? ' (Test Mode)' : ''}`);
       }
 
+      const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+
       await fetch('/api/meta-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -168,6 +170,7 @@ export default function App() {
           customData: cleanData,
           eventSourceUrl: window.location.href,
           eventId: currentEventId,
+          testEventCode: testCode,
         }),
       });
     } catch (err) {
