@@ -53,7 +53,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ClothingItem, CartItem, Order, HomepageSettings, UserProfile } from './types';
+import { ClothingItem, CartItem, Order, HomepageSettings, UserProfile } from './core/types';
 import {
   db,
   auth,
@@ -78,13 +78,62 @@ import {
   OperationType,
   Timestamp,
   User
-} from './firebase';
+} from './core/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+
+import { MainLayout } from './components/layout/MainLayout';
+import { ProductCard } from './features/catalog/ProductCard';
+import { ProductDetails } from './features/catalog/ProductDetails';
+import { AdminDashboard } from './features/admin/AdminDashboard';
+import { CartDrawer } from './features/cart/CartDrawer';
+import { Collection } from './features/catalog/Collection';
+import { LoginModal } from './features/auth/LoginModal';
+import { ProfileModal } from './features/auth/ProfileModal';
+import { CheckoutModal } from './features/checkout/CheckoutModal';
+import { CatalogService, OrderService, ProfileService } from './services/api';
+
+// Simple logger for events
+const logger = {
+  info: (msg: string, data?: any) => console.log(`[INFO] ${msg}`, data),
+  error: (msg: string, data?: any) => console.error(`[ERROR] ${msg}`, data),
+  warn: (msg: string, data?: any) => console.warn(`[WARN] ${msg}`, data),
+};
 
 export default function App() {
   const navigate = useNavigate();
   const { category: urlCategory, productId: urlProductId } = useParams();
   const location = useLocation();
+
+  // Initialize Meta Pixel and track PageView
+  useEffect(() => {
+    const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
+    if (pixelId && typeof window !== 'undefined' && (window as any).fbq) {
+      (window as any).fbq('init', pixelId);
+      (window as any).fbq('track', 'PageView');
+    }
+  }, [location.pathname]);
+
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return false;
+    }
+    return false;
+  });
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null);
+  const [showBulkDeleteProductsConfirm, setShowBulkDeleteProductsConfirm] = useState(false);
+  const [showBulkDeleteOrdersConfirm, setShowBulkDeleteOrdersConfirm] = useState(false);
 
   const [items, setItems] = useState<ClothingItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -107,10 +156,10 @@ export default function App() {
       const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       const userData = {
-        email: userDataOverride.email || user?.email || userProfile?.email || checkoutForm.email || undefined,
+        email: userDataOverride.email || user?.email || userProfile?.email || undefined,
         phone: userDataOverride.phone || userProfile?.phone || checkoutForm.phone || undefined,
-        fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.name?.split(' ')[0] || undefined,
-        ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.name?.split(' ').slice(1).join(' ') || undefined,
+        fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.customer_name?.split(' ')[0] || undefined,
+        ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.customer_name?.split(' ').slice(1).join(' ') || undefined,
         fbc: getCookie('_fbc'),
         fbp: getCookie('_fbp'),
       };
@@ -133,17 +182,15 @@ export default function App() {
         const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
         const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
         const options: any = { eventID: currentEventId };
+        
         if (testCode) options.test_event_code = testCode;
 
-        // Correct way to send Advanced Matching: Update the 'init' state
         if (userData.email || userData.phone) {
           const hashedEmail = await hashString(userData.email);
           const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
           const hashedFn = await hashString(userData.fn);
           const hashedLn = await hashString(userData.ln);
 
-          // We call init again with the user data. Meta's script handles multiple init calls
-          // and updates the user context for subsequent track calls.
           (window as any).fbq('init', pixelId, {
             em: hashedEmail,
             ph: hashedPhone,
@@ -156,12 +203,13 @@ export default function App() {
         }
 
         (window as any).fbq('track', eventName, cleanData, options);
-        console.log(`[Meta] Browser event "${eventName}" sent with ID: ${currentEventId}${testCode ? ' (Test Mode)' : ''}`);
+        logger.info(`[Meta] Browser event "${eventName}" sent`, { eventId: currentEventId, testMode: !!testCode });
       }
 
       const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
 
-      await fetch('/api/meta-event', {
+      logger.info(`[Meta] Sending "${eventName}" to Server-side CAPI Proxy...`, { eventId: currentEventId });
+      const response = await fetch('/api/meta-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -173,12 +221,18 @@ export default function App() {
           testEventCode: testCode,
         }),
       });
+
+      if (!response.ok) {
+        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`);
+      } else {
+        const result = await response.json();
+        logger.info(`[Meta] Server-side event result:`, result);
+      }
     } catch (err) {
-      console.warn('Meta tracking failed:', err);
+      logger.error(`[Meta Tracking Error] "${eventName}"`, err);
     }
   };
 
-  const [showLogin, setShowLogin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
     name: '',
@@ -363,24 +417,6 @@ export default function App() {
     }
   };
 
-  const [activeImageIdx, setActiveImageIdx] = useState(0);
-  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
-  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null);
-  const [showBulkDeleteProductsConfirm, setShowBulkDeleteProductsConfirm] = useState(false);
-  const [showBulkDeleteOrdersConfirm, setShowBulkDeleteOrdersConfirm] = useState(false);
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('theme');
-      if (saved) return saved === 'dark';
-      // Default to light mode as requested
-      return false;
-    }
-    return false;
-  });
-
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -477,13 +513,18 @@ export default function App() {
   const highlightItems = useMemo(() => {
     return (homepageSettings.highlight_product_ids || [])
       .map(id => items.find(i => i.id === id))
-      .filter((item): item is ClothingItem => !!item && item.inventory.some(inv => inv.quantity > 0));
+      .filter((item): item is ClothingItem => !!item);
   }, [homepageSettings.highlight_product_ids, items]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      console.log("Current Homepage Settings:", homepageSettings);
+      console.log("Available Highlight Items:", highlightItems);
+    }
+  }, [homepageSettings, highlightItems, isAdmin]);
+
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [currentHighlightIdx, setCurrentHighlightIdx] = useState(0);
   const [priceFilter, setPriceFilter] = useState<'all' | 'under1000' | '1000-3000' | 'over3000'>('all');
   const [stockFilter, setStockFilter] = useState<'all' | 'instock'>('all');
@@ -513,7 +554,7 @@ export default function App() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
 
-  const ADMIN_EMAIL = 'lizlifestylebd@gmail.com';
+  const ADMIN_EMAILS = ['lizlifestylebd@gmail.com', 'joseph.nasif@gmail.com'].map(e => e.toLowerCase());
 
   const CATEGORY_HIERARCHY: Record<string, string[]> = {
     'Womans Clothing': ['ZAMZAM', 'COCO']
@@ -591,23 +632,27 @@ export default function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        setIsAdmin(currentUser.email === ADMIN_EMAIL);
+        setIsAdmin(currentUser.email ? ADMIN_EMAILS.includes(currentUser.email.toLowerCase()) : false);
 
         // Fetch/Sync Profile
-        const profileRef = doc(db, 'user_profiles', currentUser.uid);
-        const profileSnap = await getDoc(profileRef);
+        const profileRef = doc(db, 'userProfiles', currentUser.uid);
+        try {
+          const profileSnap = await getDoc(profileRef);
 
-        if (profileSnap.exists()) {
-          setUserProfile(profileSnap.data() as UserProfile);
-        } else {
-          // Create initial profile if it doesn't exist
-          const newProfile: UserProfile = {
-            email: currentUser.email || '',
-            displayName: currentUser.displayName || 'Customer',
-            created_at: new Date().toISOString()
-          };
-          await setDoc(profileRef, newProfile);
-          setUserProfile(newProfile);
+          if (profileSnap.exists()) {
+            setUserProfile(profileSnap.data() as UserProfile);
+          } else {
+            // Create initial profile if it doesn't exist
+            const newProfile: UserProfile = {
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || 'Customer',
+              created_at: new Date().toISOString()
+            };
+            await setDoc(profileRef, newProfile);
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, `userProfiles/${currentUser.uid}`);
         }
 
         // Sync User Orders
@@ -632,7 +677,7 @@ export default function App() {
 
           setUserOrders(sortedOrders);
         }, (error) => {
-          console.error("User orders error:", error);
+          handleFirestoreError(error, OperationType.LIST, 'orders');
         });
 
       } else {
@@ -656,12 +701,25 @@ export default function App() {
     });
 
     const settingsDocRef = doc(db, 'settings', 'homepage');
-    const unsubscribeSettings = onSnapshot(settingsDocRef, (snapshot) => {
+    const unsubscribeSettings = onSnapshot(settingsDocRef, async (snapshot) => {
       if (snapshot.exists()) {
         setHomepageSettings(snapshot.data() as HomepageSettings);
+      } else {
+        // Initialize settings if they don't exist
+        const initialSettings: HomepageSettings = {
+          highlight_product_ids: [],
+          featured_product_ids: [],
+          featured_category: 'ZAMZAM'
+        };
+        try {
+          await setDoc(settingsDocRef, initialSettings);
+          setHomepageSettings(initialSettings);
+        } catch (e) {
+          console.error("Failed to init settings", e);
+        }
       }
     }, (error) => {
-      console.error("Settings error:", error);
+      handleFirestoreError(error, OperationType.GET, 'settings/homepage');
     });
 
     return () => {
@@ -708,7 +766,7 @@ export default function App() {
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) return;
     try {
-      const profileRef = doc(db, 'user_profiles', user.uid);
+      const profileRef = doc(db, 'userProfiles', user.uid);
       await updateDoc(profileRef, updates);
       setUserProfile(prev => prev ? { ...prev, ...updates } : null);
       setSaveStatus({ type: 'success', message: 'Profile updated successfully.' });
@@ -779,11 +837,15 @@ export default function App() {
         }
         const userCred = await signUpWithEmail(email, password);
         // Create profile immediately to ensure form data is used
-        await setDoc(doc(db, 'user_profiles', userCred.user.uid), {
-          email,
-          displayName: displayName,
-          created_at: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'userProfiles', userCred.user.uid), {
+            email,
+            displayName: displayName,
+            created_at: new Date().toISOString()
+          });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.CREATE, `userProfiles/${userCred.user.uid}`);
+        }
       }
       setShowLogin(false);
       setEmail('');
@@ -820,7 +882,16 @@ export default function App() {
   };
 
 
-  const addToCart = (item: ClothingItem, size: string) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
+    if (!isAdmin) return;
+    try {
+      await OrderService.updateOrderStatus(orderId, status);
+    } catch (error) {
+      console.error('Failed to update order status:', error);
+    }
+  };
+
+  const handleAddToCart = (item: ClothingItem, size: string) => {
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
     const inventoryItem = item.inventory.find(i => i.size === size);
     if (!inventoryItem || inventoryItem.quantity <= 0) return;
@@ -845,6 +916,23 @@ export default function App() {
       currency: 'BDT',
       content_type: 'product'
     }, `atc_${item.id}_${Date.now()}`);
+  };
+
+  const handleRemoveFromCart = (id: string, size: string) => {
+    setCart(prev => prev.filter(item => !(item.id === id && item.selectedSize === size)));
+  };
+
+  const handleUpdateCartQuantity = (id: string, size: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id && item.selectedSize === size) {
+        const product = items.find(i => i.id === id);
+        const inv = product?.inventory.find(i => i.size === size);
+        const max = inv?.quantity || 99;
+        const newQty = Math.min(max, Math.max(1, item.cartQuantity + delta));
+        return { ...item, cartQuantity: newQty };
+      }
+      return item;
+    }));
   };
 
   const updateInventory = async (itemId: string, size: string, newQuantity: number) => {
@@ -969,7 +1057,7 @@ export default function App() {
         ...(user ? { user_id: user.uid } : {}),
         items: cart.map(item => ({
           id: item.id,
-          name: item.category,
+          name: item.name,
           product_code: item.product_code,
           price: item.price,
           quantity: item.cartQuantity,
@@ -977,10 +1065,18 @@ export default function App() {
           image: item.image
         })),
         status: 'pending',
-        created_at: serverTimestamp()
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp()
       };
 
-      const docRef = await addDoc(collection(db, 'orders'), orderData);
+      let docRef;
+      try {
+        docRef = await addDoc(collection(db, 'orders'), orderData);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, 'orders');
+        throw error;
+      }
+
       const fullOrder = { ...orderData, id: docRef.id };
       setLastOrder(fullOrder);
 
@@ -994,10 +1090,14 @@ export default function App() {
               ? { ...inv, quantity: Math.max(0, inv.quantity - item.cartQuantity) }
               : inv
           );
-          await updateDoc(productRef, {
-            inventory: newInventory,
-            updated_at: serverTimestamp()
-          });
+          try {
+            await updateDoc(productRef, {
+              inventory: newInventory,
+              updated_at: serverTimestamp()
+            });
+          } catch (error) {
+            handleFirestoreError(error, OperationType.UPDATE, `products/${item.id}`);
+          }
         }
       }
 
@@ -1102,13 +1202,17 @@ export default function App() {
         updated_at: serverTimestamp()
       };
 
-      if (editingItemId) {
-        await updateDoc(doc(db, 'products', editingItemId), payload);
-      } else {
-        await addDoc(collection(db, 'products'), {
-          ...payload,
-          created_at: serverTimestamp()
-        });
+      try {
+        if (editingItemId) {
+          await updateDoc(doc(db, 'products', editingItemId), payload);
+        } else {
+          await addDoc(collection(db, 'products'), {
+            ...payload,
+            created_at: serverTimestamp()
+          });
+        }
+      } catch (error) {
+        handleFirestoreError(error, editingItemId ? OperationType.UPDATE : OperationType.CREATE, `products/${editingItemId || ''}`);
       }
 
       setSaveStatus({ type: 'success', message: editingItemId ? 'Product updated successfully!' : 'Product added successfully!' });
@@ -1151,7 +1255,7 @@ export default function App() {
       await deleteDoc(doc(db, 'products', id));
       setConfirmDeleteId(null);
     } catch (err) {
-      console.error('Failed to delete item:', err);
+      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
     }
   };
 
@@ -1176,7 +1280,11 @@ export default function App() {
       }
 
       // Delete the order
-      await deleteDoc(doc(db, 'orders', id));
+      try {
+        await deleteDoc(doc(db, 'orders', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `orders/${id}`);
+      }
       setConfirmDeleteOrderId(null);
     } catch (err) {
       console.error('Failed to delete order:', err);
@@ -1196,7 +1304,7 @@ export default function App() {
     try {
       await updateDoc(doc(db, 'products', item.id), { display_order: newOrder });
     } catch (err) {
-      console.error('Failed to move product:', err);
+      handleFirestoreError(err, OperationType.UPDATE, `products/${item.id}`);
     }
   };
 
@@ -1336,1695 +1444,217 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 font-sans text-neutral-900 dark:text-foreground transition-colors duration-300">
-      {/* Header */}
-      <header className="sticky top-0 z-40 w-full border-b dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md shadow-sm">
-        <div className="container mx-auto flex h-20 items-center justify-between px-4">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-            >
-              <Menu className="h-7 w-7 text-neutral-900 dark:text-foreground" />
-            </Button>
-            <div className="flex items-center gap-3 group cursor-pointer" onClick={() => {
-              goToCategory('All');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-[0_8px_20px_-6px_rgba(0,0,0,0.3)] transition-all duration-500 group-hover:scale-110">
-                <img
-                  src="/logo_gold.png"
-                  alt="Liz Lifestyle Logo"
-                  className="h-full w-full object-contain"
-                  onError={(e) => {
-                    e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
-                  }}
-                />
-              </div>
-              <div className="flex flex-col">
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight leading-none bg-linear-to-br from-neutral-900 dark:from-foreground via-[#064E3B] to-neutral-900 dark:to-foreground bg-clip-text text-transparent drop-shadow-sm">
-                  Liz Lifestyle
-                </h1>
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mt-1 dark:text-muted-foreground">
-                  Elegance in every thread
-                </span>
-              </div>
-            </div>
-          </div>
+    <MainLayout
+      navbarProps={{
+        user,
+        isAdmin,
+        showAdminDashboard,
+        cartCount: cart.reduce((s, i) => s + i.cartQuantity, 0),
+        searchQuery,
+        setSearchQuery,
+        isDarkMode,
+        setIsDarkMode,
+        onOpenCart: () => setIsCartOpen(true),
+        onOpenProfile: () => setIsProfileOpen(true),
+        onOpenLogin: () => setShowLogin(true),
+        onOpenAdmin: () => setShowAdminDashboard(!showAdminDashboard),
+        onLogout: handleLogout,
+        onToggleMenu: () => setIsMenuOpen(!isMenuOpen),
+        onGoHome: () => {
+          setSelectedCategory('All');
+          setSearchQuery('');
+          setShowAdminDashboard(false);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }}
+    >
+      <AnimatePresence mode="wait">
+        {showAdminDashboard ? (
+          <motion.div
+            key="admin"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <AdminDashboard
+              items={items}
+              orders={orders}
+              homepageSettings={homepageSettings}
+              onAddItem={() => {
+                setEditingItemId(null);
+                setNewItemForm({
+                  name: '',
+                  category: '',
+                  price: '',
+                  original_price: '',
+                  description: '',
+                  product_code: '',
+                  image: '',
+                  video_url: '',
+                  display_order: '0',
+                  images: [''],
+                  inventory: [
+                    { size: 'S', quantity: 0 },
+                    { size: 'M', quantity: 0 },
+                    { size: 'L', quantity: 0 },
+                    { size: 'XL', quantity: 0 },
+                    { size: 'Unstitched', quantity: 0 },
+                    { size: 'Freesize', quantity: 0 },
+                  ]
+                });
+                setIsAddingItem(true);
+              }}
+              onEditItem={startEditing}
+              onDeleteItem={handleDeleteItem}
+              onUpdateOrderStatus={updateOrderStatus}
+              onDeleteOrder={handleDeleteOrder}
+              homepageSettings={homepageSettings}
+              onUpdateHomepage={async (settings) => {
+                try {
+                  await setDoc(doc(db, 'settings', 'homepage'), settings);
+                } catch (err) {
+                  console.error('Failed to update settings:', err);
+                }
+              }}
+              onExportInventory={exportInventoryExcel}
+              onExportOrders={exportOrdersExcel}
+              onMoveProduct={moveProduct}
+              onBulkDeleteProducts={handleBulkDeleteProducts}
+              selectedProductIds={selectedProductIds}
+              setSelectedProductIds={setSelectedProductIds}
+              selectedOrderIds={selectedOrderIds}
+              setSelectedOrderIds={setSelectedOrderIds}
+              onBulkDeleteOrders={handleBulkDeleteOrders}
+              sequentialItems={sequentialItems}
+              isBulkDeleting={isBulkDeleting}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="shop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="container mx-auto px-4"
+          >
+             <Collection
+               items={items}
+               filteredItems={filteredItems}
+               highlightItems={highlightItems}
+               currentHighlightIdx={currentHighlightIdx}
+               selectedCategory={selectedCategory}
+               setSelectedCategory={setSelectedCategory}
+               searchQuery={searchQuery}
+               setSearchQuery={setSearchQuery}
+               priceFilter={priceFilter}
+               setPriceFilter={setPriceFilter}
+               stockFilter={stockFilter}
+               setStockFilter={setStockFilter}
+               sortBy={sortBy}
+               setSortBy={setSortBy}
+               onProductClick={(item) => {
+                 setSelectedItem(item);
+                 setActiveImageIdx(0);
+               }}
+               onAddToCart={handleAddToCart}
+             />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <div className="hidden lg:flex items-center gap-6">
-            {/* Categories moved to hamburger menu */}
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="relative hidden md:block">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-500" />
-              <Input
-                type="search"
-                placeholder="Search styles..."
-                className="w-64 pl-9 bg-neutral-100 dark:bg-neutral-800 border-none focus-visible:ring-1 focus-visible:ring-neutral-400 dark:placeholder:text-neutral-500"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"
-              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </Button>
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="relative dark:border-neutral-800 dark:hover:bg-neutral-800"
-              onClick={() => setIsCartOpen(true)}
-            >
-              <ShoppingBag className="h-5 w-5" />
-              {cart.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-neutral-900 dark:bg-foreground text-[10px] font-bold text-white dark:text-background">
-                  {cart.reduce((s, i) => s + i.cartQuantity, 0)}
-                </span>
-              )}
-            </Button>
-
-            {user ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsProfileOpen(true)}
-                  className="rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden hover:ring-2 hover:ring-emerald-500 transition-all"
-                  title="My Account"
-                >
-                  {user.photoURL ? (
-                    <img src={user.photoURL} alt={user.displayName || 'Profile'} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                      {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleLogout}
-                  className="text-neutral-400 hover:text-red-500 rounded-full"
-                  title="Logout"
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
-                {isAdmin && (
-                  <Button variant="ghost" size="icon" onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })} title="Admin Panel">
-                    <Lock className="h-4 w-4 text-emerald-600" />
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowLogin(true)}
-                className="text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full"
-                title="Login / Signup"
-              >
-                <LogIn className="h-5 w-5" />
-              </Button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Sub-Category Navigation removed as per user request to keep everything in hamburger menu */}
-
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {isMenuOpen && (
-          <div className="fixed inset-0 z-50">
+          <>
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMenuOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 z-100 bg-black/40 backdrop-blur-sm md:hidden"
             />
             <motion.div
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="absolute bottom-0 left-0 top-0 w-80 bg-white dark:bg-neutral-900 p-6 shadow-2xl"
+              className="fixed left-0 top-0 z-101 h-full w-full max-w-[280px] bg-white dark:bg-neutral-900 shadow-2xl md:hidden p-6"
             >
-              <div className="mb-8 flex items-center justify-between">
-                <div className="flex items-center gap-3 cursor-pointer" onClick={() => {
-                  goToCategory('All');
-                }}>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden bg-black shadow-lg">
-                    <img
-                      src="/logo_gold.png"
-                      alt="Liz Lifestyle Logo"
-                      className="h-full w-full object-contain"
-                      onError={(e) => {
-                        e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
+              <div className="flex flex-col h-full">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-neutral-900 dark:bg-white rounded-lg flex items-center justify-center">
+                      <ShoppingBag className="w-4 h-4 text-white dark:text-neutral-900" />
+                    </div>
+                    <span className="font-bold">LIZ LIFESTYLE</span>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(false)}>
+                    <X className="w-5 h-5" />
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {isAdmin && (
+                    <Button 
+                      variant={showAdminDashboard ? "default" : "outline"}
+                      className="w-full justify-start gap-3 h-12 rounded-xl mb-4"
+                      onClick={() => {
+                        setShowAdminDashboard(!showAdminDashboard);
+                        setIsMenuOpen(false);
                       }}
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <h2 className="text-xl font-black tracking-tight leading-none bg-linear-to-br from-neutral-900 dark:from-foreground via-[#064E3B] to-neutral-900 dark:to-foreground bg-clip-text text-transparent drop-shadow-sm">
-                      Liz Lifestyle
-                    </h2>
-                    <span className="text-[8px] font-bold uppercase tracking-widest text-neutral-400 mt-0.5">
-                      Elegance in every thread
-                    </span>
+                    >
+                      <Lock className="w-4 h-4" />
+                      {showAdminDashboard ? 'Back to Shop' : 'Admin Control'}
+                    </Button>
+                  )}
+                  
+                  <div className="py-4">
+                    <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Collections</p>
+                    {allCategories.map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => goToCategory(cat)}
+                        className={`w-full text-left py-3 px-2 rounded-lg text-sm font-medium transition-colors ${selectedCategory === cat ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white' : 'text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(false)}>
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
 
-              <div className="space-y-6">
-                <div>
-                  <h3 className="mb-4 text-xs font-bold uppercase tracking-widest text-neutral-400">Categories</h3>
-                  <nav className="flex flex-col gap-2">
-                    {mainCategories.map(cat => {
-                      const hasSub = CATEGORY_HIERARCHY[cat];
-                      const isSelectedOrChild = selectedCategory === cat || (hasSub && hasSub.includes(selectedCategory));
-
-                      return (
-                        <div key={cat} className="space-y-1">
-                          <button
-                            onClick={() => {
-                              goToCategory(cat);
-                            }}
-                            className={`w-full flex items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-all ${isSelectedOrChild
-                                ? 'bg-neutral-900 dark:bg-foreground text-white dark:text-background'
-                                : 'text-neutral-600 dark:text-muted-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                              }`}
-                          >
-                            {cat}
-                            {isSelectedOrChild && !hasSub && <ArrowRight className="h-4 w-4" />}
-                            {hasSub && (
-                              <ChevronRight className={`h-4 w-4 transition-transform ${isSelectedOrChild ? 'rotate-90' : ''}`} />
-                            )}
-                          </button>
-
-                          {hasSub && isSelectedOrChild && (
-                            <div className="ml-4 pl-4 border-l border-neutral-100 flex flex-col gap-1 py-1">
-                              {hasSub.map(sub => (
-                                <button
-                                  key={sub}
-                                  onClick={() => {
-                                    goToCategory(sub);
-                                  }}
-                                  className={`flex items-center justify-between rounded-lg px-4 py-2 text-xs font-medium transition-all ${selectedCategory === sub
-                                      ? 'text-neutral-900 dark:text-foreground font-bold'
-                                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-foreground'
-                                    }`}
-                                >
-                                  {sub}
-                                  {selectedCategory === sub && <div className="h-1 w-1 rounded-full bg-neutral-900 dark:bg-foreground" />}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </nav>
-                </div>
-
-                <div className="pt-6 border-t">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
-                    <Input
-                      type="search"
-                      placeholder="Search styles..."
-                      className="w-full pl-10 bg-neutral-100 border-none"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
+                <div className="mt-auto pt-8 border-t dark:border-neutral-800">
+                  <div className="flex items-center gap-4 mb-6">
+                    <Button variant="outline" size="icon" className="rounded-full w-10 h-10" onClick={() => setIsDarkMode(!isDarkMode)}>
+                      {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                    </Button>
+                    <span className="text-xs font-medium text-neutral-500">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
                   </div>
+                  {user ? (
+                    <Button variant="ghost" className="w-full justify-start gap-3 h-12 text-red-500 px-2" onClick={handleLogout}>
+                      <LogOut className="w-4 h-4" />
+                      Sign Out
+                    </Button>
+                  ) : (
+                    <Button className="w-full h-12 rounded-xl bg-neutral-900 text-white" onClick={() => setShowLogin(true)}>
+                      <LogIn className="w-4 h-4 mr-2" />
+                      Sign In
+                    </Button>
+                  )}
                 </div>
               </div>
             </motion.div>
-          </div>
+          </>
         )}
       </AnimatePresence>
 
-      <main className={selectedProduct ? "bg-white dark:bg-neutral-950 min-h-screen" : "container mx-auto px-4 py-8"}>
-        {selectedProduct ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="bg-white dark:bg-neutral-950"
-          >
-            <div className="max-w-7xl mx-auto">
-              <div className="p-4 md:p-8 flex items-center justify-between bg-white dark:bg-neutral-950 sticky top-0 z-10">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 transition-colors font-bold"
-                  onClick={() => goToProduct(null)}
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                  Back to Shop
-                </Button>
-                <div className="flex items-center gap-4">
-                  <Badge variant="outline" className="text-[10px] uppercase tracking-[0.2em] font-black border-neutral-200 px-3 py-1">
-                    {selectedProduct.category}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[calc(100vh-80px)]">
-                <div className="p-4 md:p-12 lg:p-20 flex flex-col gap-12 bg-white dark:bg-neutral-950">
-                  <div className="relative aspect-square bg-white dark:bg-neutral-900 group/zoom cursor-zoom-in overflow-hidden" onClick={() => setZoomedImage(selectedProduct.images?.[activeImageIdx] || selectedProduct.image)}>
-                    {selectedProduct.original_price && selectedProduct.original_price > selectedProduct.price && (
-                      <div className="absolute left-0 top-0 z-10 bg-[#2C3E50] text-white text-[14px] font-black px-4 py-2 rounded-sm shadow-xl">
-                        -{Math.round(((selectedProduct.original_price - selectedProduct.price) / selectedProduct.original_price) * 100)}%
-                      </div>
-                    )}
-
-                    <div className="absolute right-0 top-0 z-10 p-3">
-                      <Search className="h-6 w-6 text-neutral-400" />
-                    </div>
-
-                    <AnimatePresence mode="wait">
-                      {activeImageIdx === -1 && selectedProduct.video_url ? (
-                        <motion.div
-                          key="video"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="h-full w-full bg-neutral-900 flex items-center justify-center relative"
-                        >
-                          {(() => {
-                            const url = selectedProduct.video_url;
-                            if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                              const embedUrl = url.replace('watch?v=', 'embed/').split('&')[0];
-                              return (
-                                <iframe
-                                  src={embedUrl}
-                                  className="w-full h-full"
-                                  allowFullScreen
-                                />
-                              );
-                            } else if (url.includes('facebook.com') || url.includes('fb.watch')) {
-                              const embedUrl = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&t=0`;
-                              return (
-                                <iframe
-                                  src={embedUrl}
-                                  className="w-full h-full"
-                                  style={{ border: 'none', overflow: 'hidden' }}
-                                  scrolling="no"
-                                  frameBorder="0"
-                                  allowFullScreen={true}
-                                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-                                />
-                              );
-                            } else {
-                              return (
-                                <video
-                                  src={url}
-                                  controls
-                                  className="max-h-full max-w-full"
-                                  autoPlay
-                                  muted
-                                  loop
-                                />
-                              );
-                            }
-                          })()}
-                        </motion.div>
-                      ) : (
-                        <motion.img
-                          key={activeImageIdx}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.4 }}
-                          src={selectedProduct.images?.[activeImageIdx] || selectedProduct.image}
-                          alt={selectedProduct.name}
-                          className="h-full w-full object-contain"
-                          referrerPolicy="no-referrer"
-                        />
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {((selectedProduct.images && selectedProduct.images.length > 1) || selectedProduct.video_url) && (
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-4 px-2">
-                      {selectedProduct.images?.map((img, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setActiveImageIdx(idx)}
-                          className={`aspect-square rounded-lg overflow-hidden border-2 transition-all duration-300 ${activeImageIdx === idx
-                              ? 'border-neutral-900 ring-4 ring-neutral-50'
-                              : 'border-transparent opacity-40 hover:opacity-100'
-                            }`}
-                        >
-                          <img src={img} alt={`${selectedProduct.category} detail ${idx + 1}`} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                        </button>
-                      ))}
-                      {selectedProduct.video_url && (
-                        <button
-                          onClick={() => setActiveImageIdx(-1)}
-                          className={`aspect-square rounded-lg overflow-hidden border-2 transition-all duration-300 bg-neutral-900 flex items-center justify-center ${activeImageIdx === -1
-                              ? 'border-neutral-900 ring-4 ring-neutral-50'
-                              : 'border-transparent opacity-40 hover:opacity-100'
-                            }`}
-                        >
-                          <Sparkles className="h-5 w-5 text-white" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-col p-8 md:p-16 lg:p-24 bg-white dark:bg-neutral-950">
-                  <div className="mb-12">
-                    {selectedProduct.product_code && (
-                      <div className="inline-flex mb-8">
-                        <div className="flex items-center gap-4 bg-neutral-900 text-white rounded-2xl p-1 pr-6 shadow-2xl border border-white/10 group overflow-hidden">
-                          <div className="bg-white text-neutral-900 px-4 py-2 font-black text-xs uppercase tracking-widest rounded-xl">
-                            Dress Code
-                          </div>
-                          <span className="text-xl font-mono font-black uppercase tracking-[0.3em] glow-text">
-                            {selectedProduct.product_code}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                    <h2 className="mb-6 text-4xl md:text-5xl font-black text-neutral-900 dark:text-foreground leading-[1.1] tracking-tight">
-                      {selectedProduct.category}
-                    </h2>
-                    <div className="flex items-center gap-8">
-                      {selectedProduct.original_price && selectedProduct.original_price > selectedProduct.price && (
-                        <div className="flex flex-col">
-                          <span className="text-2xl text-neutral-300 line-through font-bold">TK {selectedProduct.original_price.toLocaleString()}</span>
-                          <span className="text-sm font-black text-red-500 uppercase tracking-widest">
-                            Save {Math.round(((selectedProduct.original_price - selectedProduct.price) / selectedProduct.original_price) * 100)}%
-                          </span>
-                        </div>
-                      )}
-                      <span className="text-5xl font-black text-neutral-900 dark:text-foreground">TK {selectedProduct.price.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  <div className="mb-16 space-y-8">
-                    <div className="text-lg text-neutral-600 dark:text-muted-foreground space-y-6 leading-relaxed">
-                      {selectedProduct.description.split('\n').map((line, i) => (
-                        <p key={i} className="flex items-start gap-4">
-                          <span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-neutral-200" />
-                          <span>{line}</span>
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mb-16 pb-10 border-b border-neutral-100 dark:border-neutral-800">
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="font-black text-neutral-900 uppercase tracking-[0.2em] text-[12px]">Category:</span>
-                      <button
-                        onClick={() => {
-                          goToCategory(selectedProduct.category);
-                        }}
-                        className="text-neutral-400 hover:text-neutral-900 transition-colors underline underline-offset-8 decoration-neutral-100 hover:decoration-neutral-900"
-                      >
-                        {selectedProduct.category}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-12 mt-auto">
-                    <div className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-[12px] font-black uppercase tracking-[0.2em] text-neutral-900">Select Size</h3>
-                        <button className="text-[11px] font-bold text-neutral-400 hover:text-neutral-900 underline underline-offset-4">Size Guide</button>
-                      </div>
-                      <div className="flex flex-wrap gap-4">
-                        {selectedProduct.inventory.map((inv) => (
-                          <button
-                            key={inv.size}
-                            disabled={inv.quantity === 0}
-                            onClick={() => addToCart(selectedProduct, inv.size as any)}
-                            className={`h-14 min-w-16 px-4 text-sm font-black border-2 rounded-xl transition-all duration-300 ${inv.quantity === 0
-                                ? 'opacity-10 cursor-not-allowed bg-neutral-50 border-neutral-100'
-                                : 'border-neutral-100 hover:border-neutral-900 hover:bg-neutral-900 hover:text-white shadow-sm hover:shadow-2xl active:scale-95'
-                              }`}
-                          >
-                            {inv.size}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-6">
-                      <Button
-                        className="w-full h-20 bg-neutral-900 text-white text-base font-black uppercase tracking-[0.3em] hover:bg-neutral-800 rounded-2xl shadow-3xl shadow-neutral-200 transition-all active:scale-[0.98] flex items-center justify-center gap-4"
-                        onClick={() => {
-                          const firstAvailable = selectedProduct.inventory.find(i => i.quantity > 0);
-                          if (firstAvailable) addToCart(selectedProduct, firstAvailable.size as any);
-                        }}
-                      >
-                        Add to Cart
-                        <ShoppingBag className="h-6 w-6" />
-                      </Button>
-                      <div className="flex items-center justify-center gap-8 text-[11px] font-bold text-neutral-400 uppercase tracking-widest">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          In Stock
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <TrendingUp className="h-4 w-4 text-blue-500" />
-                          Fast Delivery
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ) : (
-          <Tabs defaultValue="shop" className="w-full">
-            <div className="flex items-center justify-between mb-8">
-              <TabsList className={`grid w-full max-w-xl ${isAdmin ? 'grid-cols-4' : 'grid-cols-1'}`}>
-                <TabsTrigger value="shop" className="flex items-center gap-2">
-                  <LayoutGrid className="h-4 w-4" />
-                  Shop
-                </TabsTrigger>
-                {isAdmin && (
-                  <>
-                    <TabsTrigger value="admin" className="flex items-center gap-2">
-                      <Settings className="h-4 w-4" />
-                      Inventory
-                    </TabsTrigger>
-                    <TabsTrigger value="orders" className="flex items-center gap-2 relative" onClick={() => {
-                      if (orders.length > 0) {
-                        const maxId = Math.max(...orders.map(o => o.id));
-                        setLastCheckedOrderId(maxId);
-                        localStorage.setItem('last_checked_order_id', maxId.toString());
-                      }
-                    }}>
-                      <ClipboardList className="h-4 w-4" />
-                      Orders
-                      {newOrdersCount > 0 && (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                          {newOrdersCount}
-                        </span>
-                      )}
-                    </TabsTrigger>
-                    <TabsTrigger value="media" className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Media
-                    </TabsTrigger>
-                    <TabsTrigger value="homepage" className="flex items-center gap-2">
-                      <Settings className="h-4 w-4" />
-                      Homepage
-                    </TabsTrigger>
-                  </>
-                )}
-              </TabsList>
-            </div>
-
-            <TabsContent value="shop" className="mt-0">
-              {selectedCategory === 'All' && searchQuery === '' && (
-                <div className="space-y-20 mb-20 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                  {/* Highlight Section */}
-                  <section>
-                    <div className="flex items-center justify-between mb-8">
-                      <div className="space-y-1">
-                        <h2 className="text-2xl font-black text-neutral-900 dark:text-foreground tracking-tight uppercase">Premium Highlights</h2>
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400 dark:text-muted-foreground">Curated by Liz Lifestyle</p>
-                      </div>
-                      <div className="h-[2px] flex-1 bg-neutral-100 mx-8 hidden md:block" />
-                      <div className="flex items-center gap-2">
-                        <div className="text-[9px] font-black uppercase text-neutral-400 dark:text-muted-foreground mr-2">Rotating Selection</div>
-                        <div className="flex gap-1">
-                          {highlightItems.map((_, i) => (
-                            <div
-                              key={i}
-                              className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${i === currentHighlightIdx ? 'bg-neutral-900 w-4' : 'bg-neutral-200'}`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                      {/* Hero Rotating Item */}
-                      <div className="md:col-span-3">
-                        <AnimatePresence mode="wait">
-                          {(() => {
-                            const item = highlightItems[currentHighlightIdx];
-                            if (!item) return <div className="aspect-21/9 bg-neutral-50 rounded-3xl border-2 border-dashed border-neutral-100 flex items-center justify-center">
-                              <p className="text-sm font-black text-neutral-300 uppercase tracking-widest">Select Highlight In Admin</p>
-                            </div>;
-
-                            return (
-                              <motion.div
-                                key={item.id}
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                className="relative aspect-4/5 md:aspect-auto md:h-[500px] rounded-3xl overflow-hidden cursor-pointer group shadow-2xl bg-neutral-100"
-                                onClick={() => {
-                                  goToProduct(item);
-                                  setActiveImageIdx(0);
-                                }}
-                              >
-                                <img src={item.image} alt={item.category} className="h-full w-full object-contain md:object-cover md:object-top transition-transform duration-2000 group-hover:scale-105" referrerPolicy="no-referrer" />
-                                <div className="absolute inset-0 bg-linear-to-t md:bg-linear-to-r from-black/80 via-black/20 to-transparent" />
-                                <div className="absolute bottom-0 left-0 p-6 md:p-12 space-y-3 md:space-y-4 w-full">
-                                  <div className="inline-flex">
-                                    <span className="px-3 py-1 bg-white text-neutral-900 text-[10px] font-mono font-black uppercase tracking-widest rounded-full shadow-lg">
-                                      Exclusive Dress: {item.product_code}
-                                    </span>
-                                  </div>
-                                  <h3 className="text-2xl md:text-5xl font-black text-white uppercase tracking-tighter leading-tight md:leading-none">
-                                    {item.category}
-                                  </h3>
-                                  <p className="text-white/80 text-xs md:text-sm max-w-md line-clamp-2">
-                                    {item.description}
-                                  </p>
-                                  <div className="flex items-center gap-4 md:gap-6 pt-2 md:pt-4">
-                                    <div className="flex flex-col">
-                                      {item.original_price && item.original_price > item.price && (
-                                        <span className="text-sm md:text-base text-white/50 line-through font-bold">TK {item.original_price.toLocaleString()}</span>
-                                      )}
-                                      <p className="text-2xl md:text-5xl font-black text-white flex items-center gap-3">
-                                        TK {item.price.toLocaleString()}
-                                        {item.original_price && item.original_price > item.price && (
-                                          <span className="bg-red-500 text-white text-[11px] md:text-sm px-2.5 py-1 rounded-full font-black animate-pulse">
-                                            {Math.round(((item.original_price - item.price) / item.original_price) * 100)}% OFF
-                                          </span>
-                                        )}
-                                      </p>
-                                    </div>
-                                    <Button className="bg-white text-neutral-900 hover:bg-neutral-100 font-black rounded-xl px-6 md:px-8 h-10 md:h-12 uppercase tracking-widest text-[10px] md:text-xs">
-                                      View Details
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="absolute top-8 right-8">
-                                  <Badge className="bg-white/10 backdrop-blur-md border-white/20 text-white font-black px-4 py-2 text-xs animate-pulse">
-                                    NOW TRENDING
-                                  </Badge>
-                                </div>
-                              </motion.div>
-                            )
-                          })()}
-                        </AnimatePresence>
-                      </div>
-
-                      <div className="md:col-span-2 grid grid-cols-2 gap-4">
-                        {highlightItems.filter((_, i) => i !== currentHighlightIdx).slice(0, 4).map((item) => {
-                          return (
-                            <motion.div
-                              key={item.id}
-                              whileHover={{ y: -4 }}
-                              onClick={() => {
-                                goToProduct(item);
-                                setActiveImageIdx(0);
-                              }}
-                              className="group relative aspect-3/4 overflow-hidden rounded-3xl bg-neutral-50 cursor-pointer shadow-sm hover:shadow-xl transition-all duration-500"
-                            >
-                              <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
-                              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                              <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300">
-                                <p className="text-[8px] font-mono font-black text-white/80 mb-1">{item.product_code}</p>
-                                <div className="flex items-center justify-between">
-                                  <p className="text-[10px] font-black text-white uppercase line-clamp-1">{item.category}</p>
-                                  <div className="text-right">
-                                    {item.original_price && item.original_price > item.price && (
-                                      <p className="text-[8px] text-white/50 line-through">TK {item.original_price}</p>
-                                    )}
-                                    <p className="text-[13px] font-black text-white">TK {item.price}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* In-Stock Collection Section */}
-                  <section>
-                    <div className="flex items-center justify-between mb-8">
-                      <div className="space-y-1">
-                        <h2 className="text-2xl font-black text-neutral-900 dark:text-foreground tracking-tight uppercase">
-                          Available Now
-                        </h2>
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400 dark:text-muted-foreground">All in-stock collections</p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setSelectedCategory('All')}
-                        className="text-[10px] font-black uppercase tracking-widest hover:bg-neutral-900 dark:hover:bg-neutral-100 hover:text-white dark:hover:text-neutral-900 transition-all gap-2 dark:text-muted-foreground"
-                      >
-                        Browse Catalog <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                      {items
-                        .filter(i => i.inventory.some(inv => inv.quantity > 0))
-                        .sort((a, b) => (b.display_order || 0) - (a.display_order || 0))
-                        .map((item: any) => (
-                          <div
-                            key={item.id}
-                            className="group cursor-pointer space-y-4"
-                            onClick={() => {
-                              goToProduct(item);
-                              setActiveImageIdx(0);
-                            }}
-                          >
-                            <div className="relative aspect-3/4 overflow-hidden rounded-3xl bg-neutral-50 dark:bg-neutral-900 shadow-sm transition-all duration-500 hover:shadow-xl group-hover:-translate-y-1">
-                              <img src={item.image} alt={item.category} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" loading="lazy" />
-                              <div className="absolute top-3 left-3 z-20">
-                                <span className="inline-block px-3 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[10px] font-mono font-black uppercase rounded-lg shadow-2xl">
-                                  {item.product_code}
-                                </span>
-                              </div>
-                              <div className="absolute inset-0 border-12 border-white/40 dark:border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-3xl" />
-                            </div>
-                            <div className="px-2">
-                              <div className="flex justify-between items-start mb-1">
-                                {item.product_code && <p className="text-[10px] font-mono font-black text-neutral-400 dark:text-muted-foreground uppercase tracking-widest">{item.product_code}</p>}
-                                <div className="flex flex-col items-end">
-                                  {item.original_price && item.original_price > item.price && (
-                                    <span className="text-[9px] text-neutral-400 dark:text-muted-foreground line-through font-medium">TK {item.original_price.toLocaleString()}</span>
-                                  )}
-                                  <p className="text-lg font-black text-neutral-900 dark:text-foreground">
-                                    TK {item.price.toLocaleString()}
-                                    {item.original_price && item.original_price > item.price && (
-                                      <span className="ml-1 text-[10px] text-red-500 font-black">
-                                        (-{Math.round(((item.original_price - item.price) / item.original_price) * 100)}%)
-                                      </span>
-                                    )}
-                                  </p>
-                                </div>
-                              </div>
-                              <h4 className="text-sm font-bold text-neutral-900 dark:text-foreground line-clamp-1 group-hover:text-neutral-500 transition-colors uppercase">{item.category}</h4>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </section>
-
-                  <div className="relative py-8">
-                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                      <div className="w-full border-t border-neutral-100 dark:border-neutral-800" />
-                    </div>
-                    <div className="relative flex justify-center">
-                      <span className="bg-white dark:bg-neutral-950 px-6 text-[10px] font-black uppercase tracking-[0.5em] text-neutral-300 dark:text-neutral-600">Catalog Explorer</span>
-                    </div>
-                  </div>
-
-                  {/* Filter Bar */}
-                  <div className="flex flex-col md:flex-row gap-4 mb-8 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-                    <div className="flex-1 flex flex-wrap gap-3">
-                      <div className="space-y-1.5">
-                        <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Price Range</label>
-                        <select
-                          value={priceFilter}
-                          onChange={(e) => setPriceFilter(e.target.value as any)}
-                          className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
-                        >
-                          <option value="all">Any Price</option>
-                          <option value="under1000">Under TK 1,000</option>
-                          <option value="1000-3000">TK 1,000 - TK 3,000</option>
-                          <option value="over3000">Over TK 3,000</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Availability</label>
-                        <select
-                          value={stockFilter}
-                          onChange={(e) => setStockFilter(e.target.value as any)}
-                          className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
-                        >
-                          <option value="all">All Items</option>
-                          <option value="instock">In Stock Only</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[9px] font-black uppercase tracking-widest text-neutral-400 dark:text-muted-foreground ml-1">Sort By</label>
-                        <select
-                          value={sortBy}
-                          onChange={(e) => setSortBy(e.target.value as any)}
-                          className="h-10 px-3 py-1 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold dark:text-foreground focus:ring-0 focus:border-neutral-900 dark:focus:border-gold transition-all outline-none"
-                        >
-                          <option value="newest">Latest Arrivals</option>
-                          <option value="priceLow">Price: Low to High</option>
-                          <option value="priceHigh">Price: High to Low</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex items-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setPriceFilter('all');
-                          setStockFilter('all');
-                          setSortBy('newest');
-                          setSearchQuery('');
-                          setSelectedCategory('All');
-                        }}
-                        className="text-[9px] font-black uppercase tracking-widest h-10 px-4 hover:bg-neutral-900 hover:text-white transition-all rounded-xl"
-                      >
-                        Clear Filters
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <AnimatePresence mode="popLayout">
-                  {filteredItems.map((item) => (
-                    <motion.div
-                      key={item.id}
-                      layout
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <Card className="group overflow-hidden border-none shadow-sm transition-all hover:shadow-md cursor-pointer" onClick={() => {
-                        goToProduct(item);
-                        setActiveImageIdx(0);
-                      }}>
-                        <div className="relative aspect-4/5 overflow-hidden bg-neutral-50">
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-105"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute left-3 top-3 flex flex-col gap-2">
-                            {item.product_code && (
-                              <div className="bg-neutral-900 text-white text-[10px] font-mono font-black px-2 py-1 rounded shadow-xl tracking-widest border border-white/20">
-                                CODE: {item.product_code}
-                              </div>
-                            )}
-                            <Badge className="bg-white/90 text-neutral-900 hover:bg-white shadow-sm font-bold uppercase tracking-widest text-[8px]">
-                              {item.category}
-                            </Badge>
-                            {item.original_price && item.original_price > item.price && (
-                              <div className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded shadow-xl tracking-widest border border-white/20">
-                                {Math.round(((item.original_price - item.price) / item.original_price) * 100)}% OFF
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <CardHeader className="p-4 pb-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1">
-                              <CardTitle className="text-base font-bold line-clamp-1 dark:text-foreground">
-                                {item.product_code && (
-                                  <span className="inline-block px-1.5 py-0.5 bg-neutral-900 dark:bg-foreground text-white dark:text-background text-[9px] font-mono font-black mr-2 uppercase rounded-sm">
-                                    {item.product_code}
-                                  </span>
-                                )}
-                                {item.category}
-                              </CardTitle>
-                              <CardDescription className="line-clamp-1 text-xs dark:text-muted-foreground">{item.description}</CardDescription>
-                            </div>
-                            <div className="flex flex-col items-end">
-                              {item.original_price && item.original_price > item.price && (
-                                <span className="text-[10px] text-neutral-400 dark:text-muted-foreground line-through font-medium">TK {item.original_price.toLocaleString()}</span>
-                              )}
-                              <span className="text-xl font-black text-neutral-900 dark:text-foreground">TK {item.price.toLocaleString()}</span>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="p-4 pt-4">
-                          <div className="flex flex-wrap gap-2">
-                            {item.inventory.map((inv) => (
-                              <Button
-                                key={inv.size}
-                                variant="outline"
-                                size="sm"
-                                disabled={inv.quantity === 0}
-                                className={`h-8 min-w-10 px-2 text-[10px] font-bold ${inv.quantity === 0 ? 'opacity-50' : 'hover:bg-neutral-900 hover:text-white'
-                                  }`}
-                                onClick={() => addToCart(item, inv.size as any)}
-                              >
-                                {inv.size}
-                              </Button>
-                            ))}
-                          </div>
-                        </CardContent>
-                        <CardFooter className="p-4 pt-0">
-                          <p className="text-[10px] text-neutral-400 uppercase tracking-widest font-bold">
-                            {item.inventory.reduce((s, i) => s + i.quantity, 0)} items in stock
-                          </p>
-                        </CardFooter>
-                      </Card>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
-            </TabsContent>
-
-            {isAdmin && (
-              <>
-                <TabsContent value="admin" className="mt-0">
-                  <Card className="border-none shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                      <div>
-                        <CardTitle>Admin Inventory & Pricing</CardTitle>
-                        <CardDescription>Manage your product catalog and stock levels.</CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        {selectedProductIds.length > 0 && (
-                          <Button
-                            variant="destructive"
-                            onClick={() => setShowBulkDeleteProductsConfirm(true)}
-                            disabled={isBulkDeleting}
-                            className="flex items-center gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete ({selectedProductIds.length})
-                          </Button>
-                        )}
-                        {items.length === 0 && (
-                          <Button variant="outline" onClick={seedInitialData} className="flex items-center gap-2 border-dashed">
-                            <Sparkles className="h-4 w-4" />
-                            Seed Sample Data
-                          </Button>
-                        )}
-                        <Button variant="outline" onClick={async () => {
-                          try {
-                            const res = await fetch('/api/send-email', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                to: 'lizlifestylebd@gmail.com',
-                                subject: 'Test Email Configuration',
-                                html: '<p>If you see this, your Resend config is working!</p>'
-                              })
-                            });
-                            const data = await res.json();
-                            if (res.ok) {
-                              alert('Success! Check lizlifestylebd@gmail.com');
-                            } else {
-                              alert(`Failed: ${data.tip || data.error}`);
-                            }
-                          } catch (e) {
-                            alert('Connection Error');
-                          }
-                        }} className="flex items-center gap-2">
-                          <Mail className="h-4 w-4" />
-                          Test Email
-                        </Button>
-                        <Button variant="outline" onClick={exportInventoryExcel} className="flex items-center gap-2">
-                          <Download className="h-4 w-4" />
-                          Export Excel
-                        </Button>
-                        <Button onClick={() => setIsAddingItem(true)} className="bg-neutral-900 text-white">
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Product
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {isAddingItem && (
-                        <Card className="mb-8 border-2 border-dashed border-neutral-200">
-                          <CardHeader>
-                            <div className="flex items-center justify-between">
-                              <CardTitle className="text-lg">{editingItemId ? 'Edit Product' : 'Add New Product'}</CardTitle>
-                              <Button variant="ghost" size="icon" onClick={() => {
-                                setIsAddingItem(false);
-                                setEditingItemId(null);
-                              }}>
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <form onSubmit={handleAddItem} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="space-y-4">
-                                {saveStatus && (
-                                  <motion.div
-                                    initial={{ opacity: 0, y: -10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className={`p-3 rounded-lg flex items-center gap-2 text-sm ${saveStatus.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
-                                      }`}
-                                  >
-                                    {saveStatus.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                                    {saveStatus.message}
-                                  </motion.div>
-                                )}
-                                <div className="space-y-2">
-                                  <label className="text-xs font-bold uppercase text-neutral-500">Dress Code (Product Code)</label>
-                                  <Input
-                                    value={newItemForm.product_code}
-                                    onChange={(e) => setNewItemForm({ ...newItemForm, product_code: e.target.value })}
-                                    placeholder="e.g. LIZ-2024-001"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Category / Collection</label>
-                                    <select
-                                      required
-                                      value={newItemForm.category}
-                                      onChange={(e) => setNewItemForm({ ...newItemForm, category: e.target.value })}
-                                      className="flex h-10 w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      <option value="" disabled>Select Category</option>
-                                      {allCategories.map(cat => (
-                                        <option key={cat} value={cat}>{cat}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Display Order (Lower = Top)</label>
-                                    <Input
-                                      type="number"
-                                      value={newItemForm.display_order}
-                                      onChange={(e) => setNewItemForm({ ...newItemForm, display_order: e.target.value })}
-                                      placeholder="0"
-                                    />
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Sale Price (Discount Price) (TK)</label>
-                                    <Input
-                                      required
-                                      type="number"
-                                      value={newItemForm.price}
-                                      onChange={(e) => setNewItemForm({ ...newItemForm, price: e.target.value })}
-                                      placeholder="0.00"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Regular Price (Original Price) (TK)</label>
-                                    <Input
-                                      type="number"
-                                      value={newItemForm.original_price}
-                                      onChange={(e) => setNewItemForm({ ...newItemForm, original_price: e.target.value })}
-                                      placeholder="0.00"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Main Product Image</label>
-                                    <div className="flex flex-col gap-2">
-                                      <div className="relative">
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          className="hidden"
-                                          id="main-image-upload"
-                                          onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) handleFileUpload(file, 'main');
-                                          }}
-                                        />
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          className="w-full flex items-center justify-center gap-2 h-10 border-dashed"
-                                          onClick={() => document.getElementById('main-image-upload')?.click()}
-                                          disabled={isUploading}
-                                        >
-                                          {isUploading ? (
-                                            <>
-                                              <Loader2 className="h-4 w-4 animate-spin" />
-                                              <span>Uploading...</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <Upload className="h-4 w-4" />
-                                              <span>{newItemForm.image ? 'Change Image' : 'Upload Image'}</span>
-                                            </>
-                                          )}
-                                        </Button>
-                                      </div>
-                                      {newItemForm.image && (
-                                        <div className="relative h-24 w-24 rounded border overflow-hidden bg-neutral-50 group">
-                                          <img src={newItemForm.image} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-                                          <Button
-                                            type="button"
-                                            variant="destructive"
-                                            size="icon"
-                                            className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            onClick={() => setNewItemForm(prev => ({ ...prev, image: '' }))}
-                                          >
-                                            <X className="h-3 w-3" />
-                                          </Button>
-                                        </div>
-                                      )}
-                                      {!newItemForm.image && !isUploading && (
-                                        <p className="text-[10px] text-red-500 italic">Please upload a main image.</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-bold uppercase text-neutral-500">Product Video (URL)</label>
-                                    <Input
-                                      value={newItemForm.video_url}
-                                      onChange={(e) => setNewItemForm({ ...newItemForm, video_url: e.target.value })}
-                                      placeholder="Enter video URL (mp4, youtube, etc.)..."
-                                    />
-                                    {newItemForm.video_url && (
-                                      <div className="mt-2 aspect-video rounded border overflow-hidden bg-neutral-900 flex items-center justify-center">
-                                        <p className="text-[10px] text-white font-mono truncate px-2">{newItemForm.video_url}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-xs font-bold uppercase text-neutral-500">Additional Images</label>
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                    {newItemForm.images.map((img, idx) => (
-                                      <div key={idx} className="relative aspect-square flex flex-col gap-1">
-                                        {img ? (
-                                          <div className="relative h-full w-full rounded border overflow-hidden bg-neutral-50 group">
-                                            <img src={img} alt="Preview" className="h-full w-full object-contain" referrerPolicy="no-referrer" />
-                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                              <Button
-                                                type="button"
-                                                variant="secondary"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                onClick={() => document.getElementById(`additional-image-upload-${idx}`)?.click()}
-                                                disabled={isUploading}
-                                              >
-                                                <Upload className="h-4 w-4" />
-                                              </Button>
-                                              <Button
-                                                type="button"
-                                                variant="destructive"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                onClick={() => {
-                                                  const newImages = newItemForm.images.filter((_, i) => i !== idx);
-                                                  setNewItemForm({ ...newItemForm, images: newImages });
-                                                }}
-                                              >
-                                                <X className="h-4 w-4" />
-                                              </Button>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="h-full w-full flex flex-col items-center justify-center gap-2 border-dashed"
-                                            onClick={() => document.getElementById(`additional-image-upload-${idx}`)?.click()}
-                                            disabled={isUploading}
-                                          >
-                                            {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                            <span className="text-[10px]">Upload</span>
-                                          </Button>
-                                        )}
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          className="hidden"
-                                          id={`additional-image-upload-${idx}`}
-                                          onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) handleFileUpload(file, 'additional', idx);
-                                          }}
-                                        />
-                                      </div>
-                                    ))}
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      className="aspect-square flex flex-col items-center justify-center gap-2 border-dashed"
-                                      onClick={() => setNewItemForm({ ...newItemForm, images: [...newItemForm.images, ''] })}
-                                    >
-                                      <Plus className="h-4 w-4" />
-                                      <span className="text-[10px]">Add Slot</span>
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-xs font-bold uppercase text-neutral-500">Description</label>
-                                  <Input
-                                    required
-                                    value={newItemForm.description}
-                                    onChange={(e) => setNewItemForm({ ...newItemForm, description: e.target.value })}
-                                    placeholder="Product details..."
-                                  />
-                                </div>
-                              </div>
-                              <div className="space-y-4">
-                                <label className="text-xs font-bold uppercase text-neutral-500">Initial Inventory</label>
-                                <div className="grid grid-cols-2 gap-4">
-                                  {newItemForm.inventory.map((inv, idx) => (
-                                    <div key={inv.size} className="flex items-center justify-between rounded-lg border p-3">
-                                      <span className="font-bold">{inv.size}</span>
-                                      <Input
-                                        type="number"
-                                        className="h-8 w-20 text-right"
-                                        value={inv.quantity}
-                                        onChange={(e) => {
-                                          const newInv = [...newItemForm.inventory];
-                                          newInv[idx].quantity = parseInt(e.target.value) || 0;
-                                          setNewItemForm({ ...newItemForm, inventory: newInv });
-                                        }}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="pt-4">
-                                  <Button
-                                    type="submit"
-                                    className="w-full bg-neutral-900 text-white h-12"
-                                    disabled={isUploading}
-                                  >
-                                    {isUploading ? (
-                                      <>
-                                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                        Uploading Image...
-                                      </>
-                                    ) : (
-                                      editingItemId ? 'Update Product' : 'Save Product'
-                                    )}
-                                  </Button>
-                                </div>
-                              </div>
-                            </form>
-                          </CardContent>
-                        </Card>
-                      )}
-                      <div className="rounded-md border overflow-x-auto">
-                        <div className="min-w-[800px]">
-                          <div className="grid grid-cols-12 bg-neutral-50 p-4 text-xs font-bold uppercase tracking-wider text-neutral-500">
-                            <div className="col-span-1 flex items-center justify-center">
-                              <input
-                                type="checkbox"
-                                checked={items.length > 0 && selectedProductIds.length === items.length}
-                                onChange={toggleSelectAllProducts}
-                                className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                              />
-                            </div>
-                            <div className="col-span-2">Product</div>
-                            <div className="col-span-2">Price (TK)</div>
-                            <div className="col-span-4 text-center">Stock by Size</div>
-                            <div className="col-span-1 text-center">Order</div>
-                            <div className="col-span-2 text-right">Actions</div>
-                          </div>
-                          <div className="divide-y text-xs">
-                            {items.map((item) => (
-                              <div key={item.id} className={`grid grid-cols-12 items-center p-4 transition-colors hover:bg-neutral-50/50 ${selectedProductIds.includes(item.id) ? 'bg-neutral-50' : ''}`}>
-                                <div className="col-span-1 flex items-center justify-center">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedProductIds.includes(item.id)}
-                                    onChange={() => toggleSelectProduct(item.id)}
-                                    className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                                  />
-                                </div>
-                                <div className="col-span-2 flex items-center gap-3">
-                                  <img src={item.image} alt={item.category} className="h-10 w-10 rounded-md object-cover" referrerPolicy="no-referrer" />
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-0.5">
-                                      {item.product_code && (
-                                        <span className="text-[9px] font-mono font-bold text-neutral-900 bg-neutral-100 px-1 rounded uppercase">
-                                          {item.product_code}
-                                        </span>
-                                      )}
-                                      <p className="font-semibold text-sm truncate">{item.name}</p>
-                                    </div>
-                                    <p className="text-[10px] text-neutral-400 truncate">{item.category}</p>
-                                  </div>
-                                </div>
-                                <div className="col-span-2 px-2 flex flex-col gap-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[9px] font-bold text-neutral-400 w-4">Now</span>
-                                    <Input
-                                      type="number"
-                                      value={item.price}
-                                      onChange={(e) => updatePrice(item.id, parseFloat(e.target.value))}
-                                      className="h-7 w-20 text-xs font-bold"
-                                    />
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[9px] font-bold text-neutral-400 w-4">Was</span>
-                                    <Input
-                                      type="number"
-                                      value={item.original_price || ''}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        const updatedPrice = val ? parseFloat(val) : null;
-                                        updateDoc(doc(db, 'products', item.id), { original_price: updatedPrice });
-                                      }}
-                                      className="h-7 w-20 text-xs text-neutral-400"
-                                      placeholder="None"
-                                    />
-                                  </div>
-                                </div>
-                                <div className="col-span-5 flex justify-center gap-1 sm:gap-2">
-                                  {item.inventory.map((inv) => (
-                                    <div key={inv.size} className="flex flex-col items-center gap-1">
-                                      <span className="text-[9px] font-bold text-neutral-400 truncate max-w-[40px]" title={inv.size}>
-                                        {inv.size === 'Unstitched' ? 'Unst.' : inv.size === 'Freesize' ? 'Free' : inv.size}
-                                      </span>
-                                      <div className="flex items-center gap-1 rounded-lg border bg-white p-0.5 sm:p-1">
-                                        <button onClick={() => updateInventory(item.id, inv.size, inv.quantity - 1)} className="rounded p-0.5 hover:bg-neutral-100">
-                                          <Minus className="h-2 w-2 sm:h-3 sm:w-3" />
-                                        </button>
-                                        <span className={`min-w-[2ch] text-center text-[10px] sm:text-xs font-bold ${inv.quantity < 5 ? 'text-red-500' : ''}`}>
-                                          {inv.quantity}
-                                        </span>
-                                        <button onClick={() => updateInventory(item.id, inv.size, inv.quantity + 1)} className="rounded p-0.5 hover:bg-neutral-100">
-                                          <Plus className="h-2 w-2 sm:h-3 sm:w-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="col-span-1 flex flex-col items-center gap-1">
-                                  <span className="font-bold text-sm">{(item as any).display_order || 0}</span>
-                                  <div className="flex gap-1">
-                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveProduct(item, 'top')} title="Move to Top">
-                                      <TrendingUp className="h-3 w-3" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 rotate-180" onClick={() => moveProduct(item, 'bottom')} title="Move to Bottom">
-                                      <TrendingUp className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="col-span-2 flex justify-end gap-2">
-                                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => startEditing(item)}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="outline" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => setConfirmDeleteId(item.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="media" className="mt-0">
-                  <Card className="border-none shadow-sm">
-                    <CardHeader>
-                      <CardTitle>Product Media Library</CardTitle>
-                      <CardDescription>All images associated with your products.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {items.flatMap(item => {
-                          const media = [];
-                          if (item.image) media.push({ url: item.image, type: 'image' as const, itemName: item.name, itemId: item.id, idx: 0 });
-                          if (item.video_url) media.push({ url: item.video_url, type: 'video' as const, itemName: item.name, itemId: item.id, idx: -1 });
-                          if (item.images) {
-                            item.images.forEach((img, idx) => {
-                              if (img !== item.image) {
-                                media.push({ url: img, type: 'image' as const, itemName: item.name, itemId: item.id, idx });
-                              }
-                            });
-                          }
-                          return media;
-                        }).map(({ url, type, itemName, itemId, idx }, i) => (
-                          <motion.div
-                            key={`${itemId}-${type}-${idx}-${i}`}
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="group relative aspect-square rounded-lg overflow-hidden border bg-neutral-100"
-                          >
-                            {type === 'image' ? (
-                              <img src={url} alt={itemName} className="h-full w-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="h-full w-full bg-neutral-900 flex items-center justify-center">
-                                <Sparkles className="h-8 w-8 text-white/20" />
-                                <div className="absolute top-2 right-2">
-                                  <Badge variant="secondary" className="text-[8px] uppercase">Video</Badge>
-                                </div>
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
-                              <p className="text-[10px] text-white font-bold text-center line-clamp-2">{itemName}</p>
-                              <div className="flex gap-1">
-                                <Button
-                                  variant="secondary"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  title="Copy URL"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(url);
-                                    alert(`${type === 'image' ? 'Image' : 'Video'} URL copied to clipboard!`);
-                                  }}
-                                >
-                                  <Copy className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  title="View Product"
-                                  onClick={() => {
-                                    const item = items.find(it => it.id === itemId);
-                                    if (item) {
-                                      goToProduct(item);
-                                      if (type === 'image') setActiveImageIdx(idx);
-                                    }
-                                  }}
-                                >
-                                  <ArrowRight className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                      {items.length === 0 && (
-                        <div className="text-center py-12 text-neutral-500">
-                          No media found. Add products to see images here.
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="homepage" className="mt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <Card className="border-none shadow-sm">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-amber-500" />
-                          Highlight Slots (15)
-                        </CardTitle>
-                        <CardDescription>Select up to 15 products to showcase in the premium highlights section.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((slotIdx) => {
-                            const selectedId = homepageSettings.highlight_product_ids?.[slotIdx];
-                            const product = items.find(i => i.id === selectedId);
-
-                            return (
-                              <div key={slotIdx} className="flex items-center gap-4 p-3 border rounded-xl bg-neutral-50/50">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-neutral-900 text-white text-[10px] font-black">
-                                  {slotIdx + 1}
-                                </div>
-                                <div className="flex-1">
-                                  <select
-                                    value={selectedId || ''}
-                                    onChange={async (e) => {
-                                      const newIds = [...(homepageSettings.highlight_product_ids || [])];
-                                      newIds[slotIdx] = e.target.value;
-                                      const settingsRef = doc(db, 'settings', 'homepage');
-                                      try {
-                                        await updateDoc(settingsRef, { highlight_product_ids: newIds });
-                                      } catch {
-                                        await setDoc(settingsRef, {
-                                          highlight_product_ids: newIds,
-                                          featured_category: homepageSettings.featured_category || 'Coco'
-                                        });
-                                      }
-                                    }}
-                                    className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold h-10"
-                                  >
-                                    <option value="">Select a Product...</option>
-                                    {sequentialItems.map(item => (
-                                      <option key={item.id} value={item.id}>
-                                        {item.product_code ? `[${item.product_code}] ` : ''}{item.category}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                                {product && (
-                                  <img src={product.image} className="w-10 h-10 object-cover rounded-md" alt="" referrerPolicy="no-referrer" />
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="orders" className="mt-0">
-                  <Card className="border-none shadow-sm">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                      <div>
-                        <CardTitle>Order Management</CardTitle>
-                        <CardDescription>Track and process customer orders.</CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        {selectedOrderIds.length > 0 && (
-                          <Button
-                            variant="destructive"
-                            onClick={() => setShowBulkDeleteOrdersConfirm(true)}
-                            disabled={isBulkDeleting}
-                            className="flex items-center gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete ({selectedOrderIds.length})
-                          </Button>
-                        )}
-                        <Button variant="outline" onClick={exportOrdersExcel} className="flex items-center gap-2">
-                          <Download className="h-4 w-4" />
-                          Export Excel
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-6">
-                        {orders.length === 0 ? (
-                          <div className="flex h-64 flex-col items-center justify-center text-neutral-400">
-                            <ClipboardList className="h-12 w-12 mb-4 opacity-20" />
-                            <p className="text-lg font-medium">No orders yet.</p>
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                              <thead>
-                                <tr className="border-b text-xs font-bold uppercase text-neutral-500">
-                                  <th className="pb-4 pr-4 w-10">
-                                    <input
-                                      type="checkbox"
-                                      checked={orders.length > 0 && selectedOrderIds.length === orders.length}
-                                      onChange={toggleSelectAllOrders}
-                                      className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                                    />
-                                  </th>
-                                  <th className="pb-4 pr-4">Order ID</th>
-                                  <th className="pb-4 pr-4">Customer</th>
-                                  <th className="pb-4 pr-4">Items</th>
-                                  <th className="pb-4 pr-4">Total</th>
-                                  <th className="pb-4 pr-4">Status</th>
-                                  <th className="pb-4 pr-4">Date</th>
-                                  <th className="pb-4 text-right">Actions</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {orders.map((order) => (
-                                  <tr key={order.id} className={`border-b last:border-0 hover:bg-neutral-50/50 ${selectedOrderIds.includes(order.id) ? 'bg-neutral-50' : ''} ${order.id > lastCheckedOrderId ? 'bg-blue-50/30' : ''}`}>
-                                    <td className="py-4 pr-4">
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedOrderIds.includes(order.id)}
-                                        onChange={() => toggleSelectOrder(order.id)}
-                                        className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
-                                      />
-                                    </td>
-                                    <td className="py-4 pr-4 font-mono font-bold">#{order.id}</td>
-                                    <td className="py-4 pr-4">
-                                      <div className="font-bold">{order.customer_name}</div>
-                                      <div className="text-xs text-neutral-500">{order.phone}</div>
-                                      <div className="text-[10px] text-neutral-400 max-w-[200px] truncate">{order.address}</div>
-                                    </td>
-                                    <td className="py-4 pr-4">
-                                      <div className="flex -space-x-2">
-                                        {order.items.map((item, idx) => (
-                                          <div key={idx} className="h-8 w-8 rounded-full border-2 border-white bg-neutral-100 overflow-hidden" title={`[${item.product_code || 'N/A'}] ${item.category} (${item.size}) x${item.quantity}`}>
-                                            <img src={item.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                                          </div>
-                                        ))}
-                                        {order.items.length > 3 && (
-                                          <div className="h-8 w-8 rounded-full border-2 border-white bg-neutral-200 flex items-center justify-center text-[10px] font-bold">
-                                            +{order.items.length - 3}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="py-4 pr-4">
-                                      <div className="font-bold">TK {order.total_amount}</div>
-                                      <div className="text-[10px] text-neutral-500">Charge: TK {order.delivery_charge}</div>
-                                    </td>
-                                    <td className="py-4 pr-4">
-                                      <select
-                                        value={order.status}
-                                        onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                                        className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider border-none focus:ring-0 cursor-pointer ${order.status === 'pending' ? 'bg-amber-100 text-amber-700' :
-                                            order.status === 'processing' ? 'bg-blue-100 text-blue-700' :
-                                              order.status === 'delivered' ? 'bg-green-100 text-green-700' :
-                                                'bg-neutral-100 text-neutral-700'
-                                          }`}
-                                      >
-                                        <option value="pending">Pending</option>
-                                        <option value="processing">Processing</option>
-                                        <option value="shipped">Shipped</option>
-                                        <option value="delivered">Delivered</option>
-                                        <option value="cancelled">Cancelled</option>
-                                      </select>
-                                    </td>
-                                    <td className="py-4 pr-4 text-neutral-500 text-xs">
-                                      {new Date(order.created_at).toLocaleDateString()}
-                                    </td>
-                                    <td className="py-4 text-right flex items-center justify-end gap-1">
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-neutral-400 hover:text-neutral-900"
-                                        onClick={() => generateInvoicePDF(order)}
-                                        title="Download Invoice"
-                                      >
-                                        <FileText className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-neutral-400 hover:text-red-600"
-                                        onClick={() => setConfirmDeleteOrderId(order.id)}
-                                        title="Delete Order"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </>
-            )}
-          </Tabs>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-neutral-900 dark:bg-neutral-950 text-white pt-20 pb-10 border-t border-neutral-800">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden bg-white">
-                  <img
-                    src="/logo.png"
-                    alt="Liz Lifestyle"
-                    className="h-full w-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.src = 'https://ui-avatars.com/api/?name=L&background=064E3B&color=fff&bold=true';
-                    }}
-                  />
-                </div>
-                <h2 className="text-xl font-black tracking-tight">Liz Lifestyle</h2>
-              </div>
-              <p className="text-neutral-400 text-sm leading-relaxed">
-                Elegance in every thread. Curating the finest collections for the modern lifestyle.
-              </p>
-              <div className="flex gap-4">
-                <a
-                  href="https://www.instagram.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800/50 hover:bg-neutral-800 text-white transition-all"
-                >
-                  <Instagram className="h-5 w-5" />
-                </a>
-                <a
-                  href="https://www.facebook.com/lizlifestylebd/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800/50 hover:bg-neutral-800 text-white transition-all"
-                >
-                  <Facebook className="h-5 w-5" />
-                </a>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Store Collections</h3>
-              <ul className="space-y-4 text-sm font-medium">
-                <li><button onClick={() => goToCategory('All')} className="text-neutral-400 hover:text-white transition-colors">Digital Catalog</button></li>
-                <li><button onClick={() => goToCategory('Coco')} className="text-neutral-400 hover:text-white transition-colors">Coco Series</button></li>
-                <li><button onClick={() => goToCategory('Lark')} className="text-neutral-400 hover:text-white transition-colors">Lark Premium</button></li>
-                <li><button onClick={() => goToCategory('New Arrival')} className="text-neutral-400 hover:text-white transition-colors">Latest Releases</button></li>
-              </ul>
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Get in Touch</h3>
-              <ul className="space-y-4 text-sm">
-                <li className="flex items-start gap-3">
-                  <MapPin className="h-5 w-5 text-neutral-500 mt-0.5" />
-                  <span className="text-neutral-400">722/3 West Kazipara, Mirpur, Dhaka</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Phone className="h-5 w-5 text-neutral-500" />
-                  <a href="tel:01714569998" className="text-neutral-400 hover:text-white transition-colors">01714569998</a>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Mail className="h-5 w-5 text-neutral-500" />
-                  <a href="mailto:lizlifestylebd@gmail.com" className="text-neutral-400 hover:text-white transition-colors">lizlifestylebd@gmail.com</a>
-                </li>
-              </ul>
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-neutral-500">Visit Our Store</h3>
-              <div className="rounded-2xl overflow-hidden h-48 w-full border border-neutral-800 shadow-2xl relative group">
-                <iframe
-                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3651.1064235445253!2d90.36863077602334!3d23.796937286987146!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3755c0c97699478f%3A0xc3f60f644e590059!2sWest%20Kazipara%2C%20Dhaka!5e0!3m2!1sen!2sbd!4v1714745582386!5m2!1sen!2sbd"
-                  width="100%"
-                  height="100%"
-                  style={{ border: 0 }}
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  className="grayscale invert opacity-60 contrast-125 transition-all duration-700 group-hover:grayscale-0 group-hover:invert-0 group-hover:opacity-100"
-                ></iframe>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-10 border-t border-neutral-800/50 flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-bold uppercase tracking-widest text-neutral-600">
-            <p>© {new Date().getFullYear()} Liz Lifestyle. Elegance in every thread.</p>
-            <div className="flex gap-8">
-              <span className="hover:text-white cursor-pointer transition-colors">Privacy</span>
-              <span className="hover:text-white cursor-pointer transition-colors">Shipping</span>
-              <span className="hover:text-white cursor-pointer transition-colors">Terms</span>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <ProductDetails
+        item={selectedItem}
+        isOpen={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        onAddToCart={handleAddToCart}
+        activeImageIdx={activeImageIdx}
+        setActiveImageIdx={setActiveImageIdx}
+      />
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
@@ -3651,13 +2281,14 @@ export default function App() {
                                   if (order.items) {
                                     setCart(order.items.map(i => ({
                                       id: i.id || '',
+                                      name: i.name,
                                       category: i.name,
                                       price: i.price,
                                       image: i.image,
                                       cartQuantity: i.quantity,
                                       selectedSize: i.size,
                                       description: '',
-                                      stock: 10,
+                                      inventory: [],
                                       product_code: i.product_code || ''
                                     })));
                                     setIsCartOpen(true);
@@ -3896,6 +2527,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </MainLayout>
   );
 }

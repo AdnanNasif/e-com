@@ -1,4 +1,4 @@
-import { ClothingItem } from './types';
+import { ClothingItem } from './core/types';
 
 export const CLOTHING_ITEMS: ClothingItem[] = [
   {

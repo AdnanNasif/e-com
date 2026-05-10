@@ -92,7 +92,7 @@
       "schema": "Order",
       "description": "Collection of customer orders"
     },
-    "user_profiles": {
+    "userProfiles": {
       "schema": "UserProfile",
       "description": "Customer profile data, accessible only by the owner"
     },

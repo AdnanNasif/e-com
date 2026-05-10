@@ -28,7 +28,7 @@ import {
 } from 'firebase/firestore';
 
 // Import the Firebase configuration
-import firebaseConfig from '../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
@@ -75,6 +75,8 @@ export interface FirestoreErrorInfo {
   }
 }
 
+import { logger } from '../lib/logger';
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -94,7 +96,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  logger.error(`Firestore ${operationType.toUpperCase()} Error at ${path}`, errInfo);
   throw new Error(JSON.stringify(errInfo));
 }
 
