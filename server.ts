@@ -1,3 +1,7 @@
+import dotenv from 'dotenv';
+// Load environment variables immediately
+dotenv.config();
+
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -6,6 +10,9 @@ import apiRouter from './server/routes/api';
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Trust proxy for accurate client IP (behind Nginx/Cloud Run)
+  app.set('trust proxy', true);
 
   // Middleware
   app.use(express.json({ limit: '50mb' }));

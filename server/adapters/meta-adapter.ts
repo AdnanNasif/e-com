@@ -36,7 +36,7 @@ export class MetaAdapter {
             st: data.userData.st ? [this.hash(data.userData.st)] : undefined,
             zp: data.userData.zp ? [this.hash(data.userData.zp)] : undefined,
             country: data.userData.country ? [this.hash(data.userData.country)] : undefined,
-            external_id: data.userData.external_id ? this.hash(data.userData.external_id) : (data.eventId ? this.hash(data.eventId) : undefined),
+            external_id: data.userData.external_id || undefined,
             client_user_agent: data.userData.client_user_agent,
             client_ip_address: data.userData.client_ip_address,
             fbc: data.userData.fbc,

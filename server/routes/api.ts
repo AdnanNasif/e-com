@@ -45,7 +45,7 @@ router.post('/meta-event', async (req, res) => {
       client_user_agent: req.headers['user-agent'],
       client_ip_address: req.ip,
     };
-    const result = await meta.sendEvent({ 
+    const result: any = await meta.sendEvent({ 
       eventName, 
       userData: enrichedUserData, 
       customData, 
@@ -53,6 +53,11 @@ router.post('/meta-event', async (req, res) => {
       eventId,
       testEventCode 
     });
+
+    if (result && result.success === false) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+
     res.json({ success: true, result });
   } catch (error: any) {
     res.status(500).json({ error: 'Meta event failed', details: error.message });

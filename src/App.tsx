@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, FormEvent } from 'react';
+import { useState, useMemo, useEffect, useCallback, FormEvent } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -189,99 +189,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState('');
 
-  const trackMetaEvent = async (eventName: string, customData: any = {}, eventId?: string, userDataOverride: any = {}) => {
-    try {
-      const getCookie = (name: string) => {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop()?.split(';').shift();
-      };
-
-      // Generate a unique event ID if not provided
-      const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const userData = {
-        email: userDataOverride.email || user?.email || userProfile?.email || undefined,
-        phone: userDataOverride.phone || userProfile?.phone || checkoutForm.phone || undefined,
-        fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.customer_name?.split(' ')[0] || undefined,
-        ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.customer_name?.split(' ').slice(1).join(' ') || undefined,
-        ct: (userDataOverride as any).city || (checkoutForm as any).city || undefined,
-        st: (userDataOverride as any).state || (checkoutForm as any).state || undefined,
-        zp: (userDataOverride as any).zip || (checkoutForm as any).zip || undefined,
-        country: (userDataOverride as any).country || (checkoutForm as any).country || 'BD',
-        external_id: user?.uid || undefined,
-        fbc: getCookie('_fbc'),
-        fbp: getCookie('_fbp'),
-      };
-
-      // Ensure numeric values for Meta
-      const cleanData = { ...customData };
-      if (cleanData.value) cleanData.value = Number(cleanData.value);
-
-      // Simple hashing function for the browser
-      const hashString = async (str: string) => {
-        if (!str) return undefined;
-        const msgUint8 = new TextEncoder().encode(str.trim().toLowerCase());
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      };
-
-      // Browser-side call for deduplication
-      if (typeof window !== 'undefined' && (window as any).fbq) {
-        const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
-        const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
-        const options: any = { eventID: currentEventId };
-        
-        if (testCode) options.test_event_code = testCode;
-
-        if (userData.email || userData.phone) {
-          const hashedEmail = await hashString(userData.email);
-          const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
-          const hashedFn = await hashString(userData.fn);
-          const hashedLn = await hashString(userData.ln);
-
-          (window as any).fbq('init', pixelId, {
-            em: hashedEmail,
-            ph: hashedPhone,
-            fn: hashedFn,
-            ln: hashedLn,
-            external_id: currentEventId
-          });
-          
-          options.external_id = currentEventId;
-        }
-
-        (window as any).fbq('track', eventName, cleanData, options);
-        logger.info(`[Meta] Browser event "${eventName}" sent`, { eventId: currentEventId, testMode: !!testCode });
-      }
-
-      const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
-
-      logger.info(`[Meta] Sending "${eventName}" to Server-side CAPI Proxy...`, { eventId: currentEventId });
-      const response = await fetch('/api/meta-event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventName,
-          userData,
-          customData: cleanData,
-          eventSourceUrl: window.location.href,
-          eventId: currentEventId,
-          testEventCode: testCode,
-        }),
-      });
-
-      if (!response.ok) {
-        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`);
-      } else {
-        const result = await response.json();
-        logger.info(`[Meta] Server-side event result:`, result);
-      }
-    } catch (err) {
-      logger.error(`[Meta Tracking Error] "${eventName}"`, err);
-    }
-  };
 
   const [loading, setLoading] = useState(true);
   const [newItemForm, setNewItemForm] = useState({
@@ -593,6 +500,102 @@ export default function App() {
     address: '',
     delivery_location: 'inside' as 'inside' | 'outside'
   });
+
+  const trackMetaEvent = useCallback(async (eventName: string, customData: any = {}, eventId?: string, userDataOverride: any = {}) => {
+    try {
+      const getCookie = (name: string) => {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop()?.split(';').shift();
+      };
+
+      // Generate a unique event ID if not provided
+      const currentEventId = eventId || crypto.randomUUID?.() || `ev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const userData = {
+        email: userDataOverride.email || user?.email || userProfile?.email || undefined,
+        phone: userDataOverride.phone || userProfile?.phone || checkoutForm.phone || undefined,
+        fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.customer_name?.split(' ')[0] || undefined,
+        ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.customer_name?.split(' ').slice(1).join(' ') || undefined,
+        ct: (userDataOverride as any).city || (checkoutForm as any).city || undefined,
+        st: (userDataOverride as any).state || (checkoutForm as any).state || undefined,
+        zp: (userDataOverride as any).zip || (checkoutForm as any).zip || undefined,
+        country: (userDataOverride as any).country || (checkoutForm as any).country || 'BD',
+        external_id: user?.uid || undefined,
+        fbc: getCookie('_fbc'),
+        fbp: getCookie('_fbp'),
+      };
+
+      // Ensure numeric values for Meta
+      const cleanData = { ...customData };
+      if (cleanData.value) cleanData.value = Number(cleanData.value);
+
+      // Simple hashing function for the browser
+      const hashString = async (str: string) => {
+        if (!str) return undefined;
+        const msgUint8 = new TextEncoder().encode(str.trim().toLowerCase());
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      };
+
+      // Browser-side call for deduplication
+      if (typeof window !== 'undefined' && (window as any).fbq) {
+        const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+        const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
+        const options: any = { eventID: currentEventId };
+        
+        if (testCode) options.test_event_code = testCode;
+
+        if (userData.email || userData.phone || userData.external_id) {
+          const hashedEmail = await hashString(userData.email);
+          const hashedPhone = await hashString(userData.phone?.replace(/\D/g, ''));
+          const hashedFn = await hashString(userData.fn);
+          const hashedLn = await hashString(userData.ln);
+
+          (window as any).fbq('init', pixelId, {
+            em: hashedEmail,
+            ph: hashedPhone,
+            fn: hashedFn,
+            ln: hashedLn,
+            external_id: userData.external_id
+          });
+          
+          if (userData.external_id) {
+            options.external_id = userData.external_id;
+          }
+        }
+
+        (window as any).fbq('track', eventName, cleanData, options);
+        logger.info(`[Meta] Browser event "${eventName}" sent`, { eventId: currentEventId, testMode: !!testCode });
+      }
+
+      const testCode = (import.meta as any).env?.VITE_META_TEST_EVENT_CODE;
+
+      logger.info(`[Meta] Sending "${eventName}" to Server-side CAPI Proxy...`, { eventId: currentEventId });
+      const response = await fetch('/api/meta-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventName,
+          userData,
+          customData: cleanData,
+          eventSourceUrl: window.location.href,
+          eventId: currentEventId,
+          testEventCode: testCode,
+        }),
+      });
+
+      if (!response.ok) {
+        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`);
+      } else {
+        const result = await response.json();
+        logger.info(`[Meta] Server-side event result:`, result);
+      }
+    } catch (err) {
+      logger.error(`[Meta Tracking Error] "${eventName}"`, err);
+    }
+  }, [user, userProfile, checkoutForm]);
   // Pre-fill checkout form with user profile
   useEffect(() => {
     if (userProfile && !checkoutForm.customer_name) {
