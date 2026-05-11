@@ -7,6 +7,10 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Middleware
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
   // API Routes
   app.use('/api', apiRouter);
 

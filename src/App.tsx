@@ -99,6 +99,52 @@ const logger = {
   warn: (msg: string, data?: any) => console.warn(`[WARN] ${msg}`, data),
 };
 
+// --- Helper Components ---
+function ProductViewWrapper({ 
+  items, 
+  handleAddToCart, 
+  handleBuyNow, 
+  activeImageIdx, 
+  setActiveImageIdx 
+}: { 
+  items: ClothingItem[], 
+  handleAddToCart: any, 
+  handleBuyNow: any,
+  activeImageIdx: number,
+  setActiveImageIdx: any
+}) {
+  const { productId } = useParams<{ productId: string }>();
+  const item = items.find(i => i.id === productId);
+
+  if (!item) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <h2 className="text-2xl font-bold mb-4">Product Not Found</h2>
+        <Button onClick={() => window.location.href = '/'}>Go Home</Button>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      key="product"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="container mx-auto px-4 py-8"
+    >
+      <ProductDetails
+        item={item}
+        isFullPage={true}
+        onAddToCart={handleAddToCart}
+        onBuyNow={handleBuyNow}
+        activeImageIdx={activeImageIdx}
+        setActiveImageIdx={setActiveImageIdx}
+      />
+    </motion.div>
+  );
+}
+
 export default function App() {
   const navigate = useNavigate();
   const { category: urlCategory, productId: urlProductId } = useParams();
@@ -114,7 +160,6 @@ export default function App() {
   }, [location.pathname]);
 
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
@@ -343,12 +388,17 @@ export default function App() {
     if (path === '/') {
       setSelectedCategory('All');
       setSelectedProduct(null);
+      setShowAdminDashboard(false);
+    } else if (path === '/admin') {
+      setShowAdminDashboard(true);
     } else if (path.startsWith('/category/')) {
       const cat = decodeURIComponent(path.split('/category/')[1]);
       setSelectedCategory(cat);
       setSelectedProduct(null);
+      setShowAdminDashboard(false);
     } else if (path.startsWith('/product/')) {
       const prodId = path.split('/product/')[1];
+      setShowAdminDashboard(false);
       if (items.length > 0) {
         const item = items.find(i => i.id === prodId);
         if (item) {
@@ -412,6 +462,7 @@ export default function App() {
   };
 
   const goToProduct = (item: ClothingItem | null) => {
+    setSelectedProduct(item);
     if (item) {
       navigate(`/product/${item.id}`);
     } else {
@@ -564,7 +615,7 @@ export default function App() {
   const ADMIN_EMAILS = ['lizlifestylebd@gmail.com', 'joseph.nasif@gmail.com'].map(e => e.toLowerCase());
 
   const CATEGORY_HIERARCHY: Record<string, string[]> = {
-    'Womans Clothing': ['ZAMZAM', 'COCO']
+    '3 pieces': ['COCO', 'ZAMZAM', 'Party dress']
   };
 
   const allCategories = useMemo(() => {
@@ -608,8 +659,8 @@ export default function App() {
         item.category.toLowerCase().includes(searchQuery.toLowerCase());
 
       const categoryMatch = selectedCategory === 'All' ||
-        item.category === selectedCategory ||
-        (CATEGORY_HIERARCHY[selectedCategory] || []).includes(item.category);
+        item.category.toLowerCase() === selectedCategory.toLowerCase() ||
+        (CATEGORY_HIERARCHY[selectedCategory] || []).some(cat => cat.toLowerCase() === item.category.toLowerCase());
 
       const priceMatch = priceFilter === 'all' || (
         priceFilter === 'under1000' ? item.price < 1000 :
@@ -909,22 +960,23 @@ export default function App() {
     }
   };
 
-  const handleAddToCart = (item: ClothingItem, size: string) => {
+  const handleAddToCart = (item: ClothingItem, size: string, quantity: number = 1) => {
     const existing = cart.find(c => c.id === item.id && c.selectedSize === size);
     const inventoryItem = item.inventory.find(i => i.size === size);
     if (!inventoryItem || inventoryItem.quantity <= 0) return;
 
     if (existing) {
-      if (existing.cartQuantity < inventoryItem.quantity) {
-        setCart(cart.map(c =>
-          (c.id === item.id && c.selectedSize === size)
-            ? { ...c, cartQuantity: c.cartQuantity + 1 }
-            : c
-        ));
-      }
+      const newQuantity = Math.min(existing.cartQuantity + quantity, inventoryItem.quantity);
+      setCart(cart.map(c =>
+        (c.id === item.id && c.selectedSize === size)
+          ? { ...c, cartQuantity: newQuantity }
+          : c
+      ));
     } else {
-      setCart([...cart, { ...item, selectedSize: size as any, cartQuantity: 1 }]);
+      setCart([...cart, { ...item, selectedSize: size as any, cartQuantity: Math.min(quantity, inventoryItem.quantity) }]);
     }
+
+    setIsCartOpen(true);
 
     trackMetaEvent('AddToCart', {
       content_ids: [item.id],
@@ -934,6 +986,12 @@ export default function App() {
       currency: 'BDT',
       content_type: 'product'
     }, `atc_${item.id}_${Date.now()}`);
+  };
+
+  const handleBuyNow = (item: ClothingItem, size: string, quantity: number) => {
+    handleAddToCart(item, size, quantity);
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
   };
 
   const handleRemoveFromCart = (id: string, size: string) => {
@@ -1475,108 +1533,168 @@ export default function App() {
         onOpenCart: () => setIsCartOpen(true),
         onOpenProfile: () => setIsProfileOpen(true),
         onOpenLogin: () => setShowLogin(true),
-        onOpenAdmin: () => setShowAdminDashboard(!showAdminDashboard),
+        onOpenAdmin: () => {
+          if (location.pathname === '/admin') {
+            navigate('/');
+          } else {
+            navigate('/admin');
+          }
+        },
         onLogout: handleLogout,
         onToggleMenu: () => setIsMenuOpen(!isMenuOpen),
         onGoHome: () => {
           setSelectedCategory('All');
           setSearchQuery('');
           setShowAdminDashboard(false);
+          navigate('/');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
       }}
     >
       <AnimatePresence mode="wait">
-        {showAdminDashboard ? (
-          <motion.div
-            key="admin"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-          >
-            <AdminDashboard
-              items={items}
-              orders={orders}
-              homepageSettings={homepageSettings}
-              onAddItem={() => {
-                setEditingItemId(null);
-                setNewItemForm({
-                  name: '',
-                  category: '',
-                  price: '',
-                  original_price: '',
-                  description: '',
-                  product_code: '',
-                  image: '',
-                  video_url: '',
-                  display_order: '0',
-                  images: [''],
-                  inventory: [
-                    { size: 'S', quantity: 0 },
-                    { size: 'M', quantity: 0 },
-                    { size: 'L', quantity: 0 },
-                    { size: 'XL', quantity: 0 },
-                    { size: 'Unstitched', quantity: 0 },
-                    { size: 'Freesize', quantity: 0 },
-                  ]
-                });
-                setIsAddingItem(true);
-              }}
-              onEditItem={startEditing}
-              onDeleteItem={handleDeleteItem}
-              onUpdateOrderStatus={updateOrderStatus}
-              onDeleteOrder={handleDeleteOrder}
-              onUpdateHomepage={async (settings) => {
-                try {
-                  await setDoc(doc(db, 'settings', 'homepage'), settings);
-                } catch (err) {
-                  console.error('Failed to update settings:', err);
-                }
-              }}
-              onExportInventory={exportInventoryExcel}
-              onExportOrders={exportOrdersExcel}
-              onMoveProduct={moveProduct}
-              onBulkDeleteProducts={handleBulkDeleteProducts}
-              selectedProductIds={selectedProductIds}
-              setSelectedProductIds={setSelectedProductIds}
-              selectedOrderIds={selectedOrderIds}
-              setSelectedOrderIds={setSelectedOrderIds}
-              onBulkDeleteOrders={handleBulkDeleteOrders}
-              sequentialItems={sequentialItems}
-              isBulkDeleting={isBulkDeleting}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="shop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="container mx-auto px-4"
-          >
-             <Collection
-               items={items}
-               filteredItems={filteredItems}
-               highlightItems={highlightItems}
-               currentHighlightIdx={currentHighlightIdx}
-               selectedCategory={selectedCategory}
-               setSelectedCategory={setSelectedCategory}
-               searchQuery={searchQuery}
-               setSearchQuery={setSearchQuery}
-               priceFilter={priceFilter}
-               setPriceFilter={setPriceFilter}
-               stockFilter={stockFilter}
-               setStockFilter={setStockFilter}
-               sortBy={sortBy}
-               setSortBy={setSortBy}
-               onProductClick={(item) => {
-                 setSelectedItem(item);
-                 setActiveImageIdx(0);
-               }}
-               onAddToCart={handleAddToCart}
-             />
-          </motion.div>
-        )}
+        <Routes>
+          <Route path="/admin" element={
+            isAdmin ? (
+              <motion.div
+                key="admin"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="container mx-auto px-4"
+              >
+                <AdminDashboard
+                  items={items}
+                  orders={orders}
+                  homepageSettings={homepageSettings}
+                  onAddItem={() => {
+                    setEditingItemId(null);
+                    setNewItemForm({
+                      name: '',
+                      category: '',
+                      price: '',
+                      original_price: '',
+                      description: '',
+                      product_code: '',
+                      image: '',
+                      video_url: '',
+                      display_order: '0',
+                      images: [''],
+                      inventory: [
+                        { size: 'S', quantity: 0 },
+                        { size: 'M', quantity: 0 },
+                        { size: 'L', quantity: 0 },
+                        { size: 'XL', quantity: 0 },
+                        { size: 'Unstitched', quantity: 0 },
+                        { size: 'Freesize', quantity: 0 },
+                      ]
+                    });
+                    setIsAddingItem(true);
+                  }}
+                  onEditItem={startEditing}
+                  onDeleteItem={handleDeleteItem}
+                  onUpdateOrderStatus={updateOrderStatus}
+                  onDeleteOrder={handleDeleteOrder}
+                  onUpdateHomepage={async (settings) => {
+                    try {
+                      await setDoc(doc(db, 'settings', 'homepage'), settings);
+                    } catch (err) {
+                      console.error('Failed to update settings:', err);
+                    }
+                  }}
+                  onExportInventory={exportInventoryExcel}
+                  onExportOrders={exportOrdersExcel}
+                  onMoveProduct={moveProduct}
+                  onBulkDeleteProducts={handleBulkDeleteProducts}
+                  selectedProductIds={selectedProductIds}
+                  setSelectedProductIds={setSelectedProductIds}
+                  selectedOrderIds={selectedOrderIds}
+                  setSelectedOrderIds={setSelectedOrderIds}
+                  onBulkDeleteOrders={handleBulkDeleteOrders}
+                  sequentialItems={sequentialItems}
+                  isBulkDeleting={isBulkDeleting}
+                />
+              </motion.div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[60vh]">
+                <Lock className="w-12 h-12 text-neutral-300 mb-4" />
+                <h2 className="text-xl font-bold">Admin Only</h2>
+                <Button onClick={() => navigate('/')} className="mt-4">Go Home</Button>
+              </div>
+            )
+          } />
+
+          <Route path="/product/:productId" element={<ProductViewWrapper 
+            items={items} 
+            handleAddToCart={handleAddToCart} 
+            handleBuyNow={handleBuyNow}
+            activeImageIdx={activeImageIdx}
+            setActiveImageIdx={setActiveImageIdx}
+          />} />
+
+          <Route path="/category/:category" element={
+            <motion.div
+              key="category"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="container mx-auto px-4"
+            >
+              <Collection
+                items={items}
+                filteredItems={filteredItems}
+                highlightItems={highlightItems}
+                currentHighlightIdx={currentHighlightIdx}
+                selectedCategory={selectedCategory}
+                setSelectedCategory={setSelectedCategory}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                priceFilter={priceFilter}
+                setPriceFilter={setPriceFilter}
+                stockFilter={stockFilter}
+                setStockFilter={setStockFilter}
+                sortBy={sortBy}
+                setSortBy={setSortBy}
+                onProductClick={(item) => {
+                  goToProduct(item);
+                  setActiveImageIdx(0);
+                }}
+                onAddToCart={handleAddToCart}
+              />
+            </motion.div>
+          } />
+
+          <Route path="/" element={
+            <motion.div
+              key="shop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="container mx-auto px-4"
+            >
+               <Collection
+                 items={items}
+                 filteredItems={filteredItems}
+                 highlightItems={highlightItems}
+                 currentHighlightIdx={currentHighlightIdx}
+                 selectedCategory={selectedCategory}
+                 setSelectedCategory={setSelectedCategory}
+                 searchQuery={searchQuery}
+                 setSearchQuery={setSearchQuery}
+                 priceFilter={priceFilter}
+                 setPriceFilter={setPriceFilter}
+                 stockFilter={stockFilter}
+                 setStockFilter={setStockFilter}
+                 sortBy={sortBy}
+                 setSortBy={setSortBy}
+                 onProductClick={(item) => {
+                   goToProduct(item);
+                   setActiveImageIdx(0);
+                 }}
+                 onAddToCart={handleAddToCart}
+               />
+            </motion.div>
+          } />
+        </Routes>
       </AnimatePresence>
 
       {/* Mobile Menu */}
@@ -1588,14 +1706,14 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMenuOpen(false)}
-              className="fixed inset-0 z-100 bg-black/40 backdrop-blur-sm md:hidden"
+              className="fixed inset-0 z-100 bg-black/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 z-101 h-full w-full max-w-[280px] bg-white dark:bg-neutral-900 shadow-2xl md:hidden p-6"
+              className="fixed left-0 top-0 z-101 h-full w-full max-w-[280px] bg-white dark:bg-neutral-900 shadow-2xl p-6"
             >
               <div className="flex flex-col h-full">
                 <div className="flex items-center justify-between mb-8">
@@ -1626,16 +1744,60 @@ export default function App() {
                   )}
                   
                   <div className="py-4">
-                    <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Collections</p>
-                    {allCategories.map(cat => (
+                    <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4">Navigation</p>
+                    
+                    <div className="mb-6">
+                      <button 
+                        onClick={() => {
+                          goToCategory('3 pieces');
+                          setIsMenuOpen(false);
+                        }}
+                        className="px-2 py-2 mb-2 w-full text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 rounded-xl transition-colors"
+                      >
+                        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-neutral-900 dark:text-white">3 pieces</span>
+                      </button>
+                      <div className="space-y-1">
+                        {['COCO', 'ZAMZAM', 'Party dress'].map(sub => (
+                          <button
+                            key={sub}
+                            onClick={() => {
+                              goToCategory(sub);
+                              setIsMenuOpen(false);
+                            }}
+                            className={`w-full text-left py-2 px-4 rounded-xl text-xs font-bold transition-all ${selectedCategory === sub ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-lg shadow-neutral-900/10' : 'text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                          >
+                            {sub}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] font-black uppercase text-neutral-400 tracking-widest mb-4 mt-8">More Collections</p>
+                    {allCategories.filter(c => {
+                      const lower = c.toLowerCase();
+                      return !['coco', 'zamzam', 'party dress', 'all', '3 pieces'].includes(lower);
+                    }).map(cat => (
                       <button
                         key={cat}
-                        onClick={() => goToCategory(cat)}
-                        className={`w-full text-left py-3 px-2 rounded-lg text-sm font-medium transition-colors ${selectedCategory === cat ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white' : 'text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                        onClick={() => {
+                          goToCategory(cat);
+                          setIsMenuOpen(false);
+                        }}
+                        className={`w-full text-left py-3 px-4 rounded-xl text-sm font-bold transition-colors ${selectedCategory === cat ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white' : 'text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
                       >
                         {cat}
                       </button>
                     ))}
+                    
+                    <button
+                      onClick={() => {
+                        goToCategory('All');
+                        setIsMenuOpen(false);
+                      }}
+                      className={`w-full text-left py-3 px-4 rounded-xl text-sm font-bold mt-4 transition-colors ${selectedCategory === 'All' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white' : 'text-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                    >
+                      View All Creations
+                    </button>
                   </div>
                 </div>
 
@@ -1663,15 +1825,6 @@ export default function App() {
           </>
         )}
       </AnimatePresence>
-
-      <ProductDetails
-        item={selectedItem}
-        isOpen={!!selectedItem}
-        onClose={() => setSelectedItem(null)}
-        onAddToCart={handleAddToCart}
-        activeImageIdx={activeImageIdx}
-        setActiveImageIdx={setActiveImageIdx}
-      />
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>

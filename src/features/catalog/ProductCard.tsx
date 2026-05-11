@@ -52,9 +52,21 @@ export const ProductCard: React.FC<ProductCardProps> = ({ item, onClick, onAddTo
         </div>
 
         {isOutOfStock && (
-          <div className="absolute inset-0 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-[2px] flex items-center justify-center">
-            <Badge variant="outline" className="bg-white dark:bg-neutral-900 border-neutral-900 dark:border-white text-neutral-900 dark:text-white font-mono font-bold tracking-[0.2em] px-4 py-2">
-              OUT OF STOCK
+          <div className="absolute inset-0 bg-neutral-900/40 backdrop-blur-[4px] flex items-center justify-center p-6 text-center">
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="border-2 border-white text-white px-6 py-3 rounded-none font-black text-xl tracking-[0.3em] rotate-[-12deg] shadow-2xl skew-x-[-12deg]"
+            >
+              SOLD OUT
+            </motion.div>
+          </div>
+        )}
+        
+        {!isOutOfStock && item.inventory.reduce((sum, inv) => sum + inv.quantity, 0) < 5 && (
+          <div className="absolute top-4 right-4 animate-pulse">
+            <Badge className="bg-amber-500 text-white border-none shadow-sm text-[10px] tracking-wider px-3">
+              LOW STOCK
             </Badge>
           </div>
         )}
@@ -77,15 +89,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ item, onClick, onAddTo
         </div>
 
         <div className="flex items-center justify-between mt-4">
-          <div className="flex flex-col">
+          <div className="flex items-baseline gap-2">
+            <span className={`text-xl font-sans font-black tracking-tighter ${item.original_price && item.original_price > item.price ? 'text-red-600 dark:text-red-400' : 'text-neutral-900 dark:text-white'}`}>
+              ৳{item.price}
+            </span>
             {item.original_price && item.original_price > item.price && (
-              <span className="text-[10px] text-neutral-400 line-through font-mono">
+              <span className="text-xs text-neutral-400 line-through font-mono">
                 ৳{item.original_price}
               </span>
             )}
-            <span className="text-lg font-sans font-black text-neutral-900 dark:text-white tracking-tighter">
-              ৳{item.price}
-            </span>
           </div>
           
           <Button 

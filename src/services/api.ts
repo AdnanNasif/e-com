@@ -61,9 +61,16 @@ export const CatalogService = {
     const path = id ? `products/${id}` : 'products';
     try {
       if (id) {
-        await updateDoc(doc(db, 'products', id), data);
+        await updateDoc(doc(db, 'products', id), {
+          ...data,
+          updated_at: serverTimestamp()
+        });
       } else {
-        await addDoc(collection(db, 'products'), data);
+        await addDoc(collection(db, 'products'), {
+          ...data,
+          created_at: serverTimestamp(),
+          updated_at: serverTimestamp()
+        });
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);

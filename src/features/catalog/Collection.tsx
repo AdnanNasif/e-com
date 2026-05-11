@@ -110,18 +110,13 @@ export function Collection({
                             {item.description}
                           </p>
                           <div className="flex items-center gap-4 md:gap-6 pt-2 md:pt-4">
-                            <div className="flex flex-col">
-                              {item.original_price && item.original_price > item.price && (
-                                <span className="text-sm md:text-base text-white/50 line-through font-bold">TK {item.original_price.toLocaleString()}</span>
-                              )}
-                              <p className="text-2xl md:text-5xl font-black text-white flex items-center gap-3">
+                            <div className="flex items-baseline gap-4">
+                              <p className="text-2xl md:text-5xl font-black text-white">
                                 TK {item.price.toLocaleString()}
-                                {item.original_price && item.original_price > item.price && (
-                                  <span className="bg-red-500 text-white text-[11px] md:text-sm px-2.5 py-1 rounded-full font-black animate-pulse">
-                                    {Math.round(((item.original_price - item.price) / item.original_price) * 100)}% OFF
-                                  </span>
-                                )}
                               </p>
+                              {item.original_price && item.original_price > item.price && (
+                                <span className="text-lg md:text-2xl text-white/50 line-through font-bold">TK {item.original_price.toLocaleString()}</span>
+                              )}
                             </div>
                             <Button className="bg-white text-neutral-900 hover:bg-neutral-100 font-black rounded-xl px-6 md:px-8 h-10 md:h-12 uppercase tracking-widest text-[10px] md:text-xs">
                               View Details
@@ -217,7 +212,14 @@ export function Collection({
                     </div>
                     <div className="px-2">
                        <h4 className="text-sm font-bold text-neutral-900 dark:text-foreground line-clamp-1 uppercase">{item.category}</h4>
-                       <p className="text-lg font-black text-neutral-900 dark:text-foreground">TK {item.price.toLocaleString()}</p>
+                       <div className="flex items-baseline gap-2">
+                         <p className={`text-lg font-black ${item.original_price && item.original_price > item.price ? 'text-red-600 dark:text-red-400' : 'text-neutral-900 dark:text-foreground'}`}>
+                           TK {item.price.toLocaleString()}
+                         </p>
+                         {item.original_price && item.original_price > item.price && (
+                           <span className="text-[10px] text-neutral-400 line-through font-mono">TK {item.original_price}</span>
+                         )}
+                       </div>
                     </div>
                   </div>
                 ))}
@@ -305,8 +307,13 @@ export function Collection({
                   </div>
                   <CardHeader className="p-4 pb-0 space-y-1">
                     <CardTitle className="text-sm font-black line-clamp-1 dark:text-white uppercase tracking-tight">{item.category}</CardTitle>
-                    <div className="flex justify-between items-baseline">
-                       <span className="text-lg font-black text-neutral-900 dark:text-white">TK {item.price.toLocaleString()}</span>
+                    <div className="flex items-baseline gap-2">
+                       <span className={`text-lg font-black ${item.original_price && item.original_price > item.price ? 'text-red-600 dark:text-red-400' : 'text-neutral-900 dark:text-white'}`}>
+                         TK {item.price.toLocaleString()}
+                       </span>
+                       {item.original_price && item.original_price > item.price && (
+                         <span className="text-[10px] text-neutral-400 line-through font-mono">TK {item.original_price}</span>
+                       )}
                     </div>
                   </CardHeader>
                   <CardContent className="p-4 pt-4">

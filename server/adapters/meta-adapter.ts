@@ -2,9 +2,9 @@ import crypto from 'crypto';
 import { MetaEventData } from '../core/types';
 
 export class MetaAdapter {
-  private pixelId = process.env.META_PIXEL_ID;
-  private accessToken = process.env.META_ACCESS_TOKEN;
-  private testEventCode = process.env.META_TEST_EVENT_CODE;
+  private pixelId = process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID;
+  private accessToken = process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN;
+  private testEventCode = process.env.META_TEST_EVENT_CODE || process.env.VITE_META_TEST_EVENT_CODE;
 
   private hash(data: string) {
     if (!data) return undefined;
@@ -52,17 +52,27 @@ export class MetaAdapter {
     }
 
     try {
-      const response = await fetch(`https://graph.facebook.com/v13.0/${this.pixelId}/events?access_token=${this.accessToken}`, {
+      const url = `https://graph.facebook.com/v13.0/${this.pixelId}/events?access_token=${this.accessToken}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-      if (result.error) {
-        console.error(`[Meta] API Error:`, result.error);
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response from Meta: ${responseText.substring(0, 100)}`);
       }
-      return result;
+
+      if (!response.ok || result.error) {
+        console.error(`[Meta] API Error:`, result.error || result);
+        return { success: false, error: result.error || result };
+      }
+
+      return { success: true, result };
     } catch (error) {
       console.error(`[Meta] Error sending event "${data.eventName}":`, error);
       throw error;
