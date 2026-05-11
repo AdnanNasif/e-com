@@ -160,6 +160,11 @@ export default function App() {
         phone: userDataOverride.phone || userProfile?.phone || checkoutForm.phone || undefined,
         fn: (userDataOverride.name || userProfile?.displayName)?.split(' ')[0] || checkoutForm.customer_name?.split(' ')[0] || undefined,
         ln: (userDataOverride.name || userProfile?.displayName)?.split(' ').slice(1).join(' ') || checkoutForm.customer_name?.split(' ').slice(1).join(' ') || undefined,
+        ct: (userDataOverride as any).city || (checkoutForm as any).city || undefined,
+        st: (userDataOverride as any).state || (checkoutForm as any).state || undefined,
+        zp: (userDataOverride as any).zip || (checkoutForm as any).zip || undefined,
+        country: (userDataOverride as any).country || (checkoutForm as any).country || 'BD',
+        external_id: user?.uid || undefined,
         fbc: getCookie('_fbc'),
         fbp: getCookie('_fbp'),
       };
@@ -381,6 +386,8 @@ export default function App() {
 
     const ogUrl = document.querySelector('meta[property="og:url"]');
     if (ogUrl) ogUrl.setAttribute('content', window.location.href);
+
+    trackMetaEvent('PageView', {}, `pv_${Date.now()}`);
 
     if (selectedProduct) {
       trackMetaEvent('ViewContent', {
@@ -622,6 +629,16 @@ export default function App() {
     });
   }, [items, searchQuery, selectedCategory, priceFilter, stockFilter, sortBy]);
 
+  useEffect(() => {
+    if (!searchQuery) return;
+    
+    const timer = setTimeout(() => {
+      trackMetaEvent('Search', { search_string: searchQuery }, `sh_${Date.now()}`);
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const newOrdersCount = useMemo(() => {
     return orders.filter(o => o.status === 'pending').length;
   }, [orders]);
@@ -804,6 +821,7 @@ export default function App() {
     try {
       await loginWithGoogle();
       setShowLogin(false);
+      trackMetaEvent('CompleteRegistration', { method: 'google' }, `reg_${Date.now()}`);
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.code === 'auth/unauthorized-domain') {
@@ -1508,7 +1526,6 @@ export default function App() {
               onDeleteItem={handleDeleteItem}
               onUpdateOrderStatus={updateOrderStatus}
               onDeleteOrder={handleDeleteOrder}
-              homepageSettings={homepageSettings}
               onUpdateHomepage={async (settings) => {
                 try {
                   await setDoc(doc(db, 'settings', 'homepage'), settings);

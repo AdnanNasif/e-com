@@ -5,6 +5,11 @@ export interface MetaEventData {
     phone?: string;
     fn?: string;
     ln?: string;
+    ct?: string;
+    st?: string;
+    zp?: string;
+    country?: string;
+    external_id?: string;
     client_user_agent?: string;
     client_ip_address?: string;
     fbc?: string;
