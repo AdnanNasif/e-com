@@ -66,8 +66,6 @@ service cloud.firestore {
              data.items is list && data.items.size() > 0 && data.items.size() <= 100 &&
              data.total_amount is number && data.total_amount >= 0 &&
              data.status in ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] &&
-             data.created_at == request.time &&
-             data.updated_at == request.time &&
              data.delivery_location is string &&
              data.delivery_charge is number &&
              (!data.keys().contains('user_id') || (data.user_id is string && (isAdmin() || (isSignedIn() && data.user_id == request.auth.uid))));

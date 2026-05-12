@@ -150,15 +150,6 @@ export default function App() {
   const { category: urlCategory, productId: urlProductId } = useParams();
   const location = useLocation();
 
-  // Initialize Meta Pixel and track PageView
-  useEffect(() => {
-    const pixelId = (import.meta as any).env?.VITE_META_PIXEL_ID;
-    if (pixelId && typeof window !== 'undefined' && (window as any).fbq) {
-      (window as any).fbq('init', pixelId);
-      (window as any).fbq('track', 'PageView');
-    }
-  }, [location.pathname]);
-
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {

@@ -14,8 +14,14 @@ export async function uploadToCloudinary(file: File): Promise<string> {
       throw new Error(error.error || error.details || 'Upload failed');
     } else {
       const text = await response.text();
-      throw new Error(`Upload failed (${response.status}): ${text.substring(0, 100)}`);
+      throw new Error(`Upload failed (${response.status}). The server returned an invalid response (likely an HTML error page). Please ensure your backend is running correctly.`);
     }
+  }
+
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    const text = await response.text();
+    throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`);
   }
 
   const data = await response.json();

@@ -18,11 +18,16 @@ export const TrackingService = {
         eventSourceUrl: window.location.href,
       };
 
-      await fetch('/api/meta-event', {
+      const response = await fetch('/api/meta-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.warn(`Meta CAPI Proxy failed (${response.status}):`, text.substring(0, 100));
+      }
     } catch (err) {
       console.warn('Meta tracking failed:', err);
     }
