@@ -62,6 +62,7 @@ export class MetaAdapter {
       }
 
       console.log(`[Meta] Fetching URL: ${url.replace(this.accessToken as string, 'REDACTED')}`);
+      console.log(`[Meta] Event Payload:`, JSON.stringify(payload, null, 2));
       
       const response = await fetch(url, {
         method: 'POST',

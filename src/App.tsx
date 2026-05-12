@@ -570,16 +570,18 @@ export default function App() {
         }),
       });
 
+      // Read response once as text to avoid "stream already read" issues
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        result = { error: 'Failed to parse JSON', raw: responseText.substring(0, 1000) };
+      }
+
       if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch (e) {
-          errorData = await response.text();
-        }
-        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`, errorData);
+        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`, result);
       } else {
-        const result = await response.json();
         logger.info(`[Meta] Server-side event result:`, result);
       }
     } catch (err) {

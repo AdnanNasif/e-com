@@ -71,7 +71,11 @@ router.post('/meta-event', async (req, res) => {
       client_ip_address: typeof clientIp === 'string' ? clientIp : (Array.isArray(clientIp) ? clientIp[0] : String(clientIp || '')),
     };
 
-    console.log('[API] Processing event:', eventName, { eventId, hasPixel: !!(process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID) });
+    console.log('[API] Processing event:', eventName, { 
+      eventId, 
+      hasPixel: !!(process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID),
+      hasToken: !!(process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN)
+    });
     
     const result: any = await meta.sendEvent({ 
       eventName, 
@@ -84,9 +88,7 @@ router.post('/meta-event', async (req, res) => {
 
     if (result && result.success === false) {
       console.error('[API] Meta CAPI reported failure:', result.error);
-      // Return 200 but success: false if it's a known error from Meta or if configuration is missing
-      // This prevents the proxy itself from being a "failure" source if the integration is just disabled
-      return res.json({ success: false, error: result.error, details: result.details });
+      return res.status(200).json({ success: false, error: result.error, details: result.details });
     }
 
     console.log('[API] Meta event process completed successfully');
