@@ -8,8 +8,14 @@ export async function uploadToCloudinary(file: File): Promise<string> {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || error.details || 'Upload failed');
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const error = await response.json();
+      throw new Error(error.error || error.details || 'Upload failed');
+    } else {
+      const text = await response.text();
+      throw new Error(`Upload failed (${response.status}): ${text.substring(0, 100)}`);
+    }
   }
 
   const data = await response.json();

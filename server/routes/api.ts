@@ -14,24 +14,40 @@ const email = new EmailAdapter();
 // Health check
 router.get('/health', (req, res) => {
   res.json({ 
-    status: 'ok', 
+    status: 'ok',
+    environment: process.env.NODE_ENV || 'development',
     meta: {
       pixel_id: !!(process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID),
       token: !!(process.env.META_ACCESS_TOKEN || process.env.VITE_META_ACCESS_TOKEN) ? 'LOADED' : 'MISSING',
       test_code: !!(process.env.META_TEST_EVENT_CODE || process.env.VITE_META_TEST_EVENT_CODE)
     },
-    cloudinary: !!process.env.CLOUDINARY_CLOUD_NAME,
+    cloudinary: {
+      cloud_name: !!process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: !!process.env.CLOUDINARY_API_KEY,
+      api_secret: !!process.env.CLOUDINARY_API_SECRET
+    },
     resend: !!process.env.RESEND_API_KEY
   });
 });
 
 // Upload
+router.get('/upload', (req, res) => {
+  res.json({ message: 'Upload endpoint is active. Use POST to upload files.' });
+});
+
 router.post('/upload', upload.single('file'), async (req, res) => {
+  console.log('[API] Received upload request');
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) {
+      console.log('[API] No file in request');
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    console.log('[API] File received:', req.file.originalname, req.file.mimetype, req.file.size);
     const result = await cloudinary.upload(req.file);
+    console.log('[API] Upload successful');
     res.status(200).json(result);
   } catch (error: any) {
+    console.error('[API] Upload failed:', error);
     res.status(500).json({ error: 'Upload failed', details: error.message });
   }
 });

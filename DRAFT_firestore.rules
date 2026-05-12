@@ -17,7 +17,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Explicitly look up roles or use hardcoded admin list for this app.
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Auth tokens NEVER contain custom claims in this environment.
+    // Explicitly look up roles or use hardcoded admin list if appropriate for this app.
     function isAdmin() {
       return isSignedIn() && 
              (request.auth.token.email.lower() == "lizlifestylebd@gmail.com" ||
@@ -41,13 +46,15 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidProduct(data) {
-      return data.keys().hasAll(['name', 'category', 'price', 'inventory', 'image', 'images', 'display_order', 'updated_at']) &&
+      let required = ['name', 'category', 'price', 'inventory', 'image', 'images', 'display_order', 'updated_at'];
+      let optional = ['description', 'original_price', 'video_url', 'product_code', 'created_at'];
+      return data.keys().hasAll(required) &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
              data.category is string && data.category.size() > 0 && data.category.size() <= 100 &&
              data.price is number && data.price >= 0 &&
-             data.inventory is list && data.inventory.size() <= 50 &&
+             data.inventory is list && data.inventory.size() <= 20 &&
              data.image is string && data.image.size() <= 1000 &&
-             data.images is list && data.images.size() <= 20 &&
+             data.images is list && data.images.size() <= 10 &&
              data.display_order is number &&
              (data.updated_at == request.time) &&
              (!data.keys().contains('description') || (data.description is string && data.description.size() <= 5000)) &&
@@ -59,11 +66,12 @@ service cloud.firestore {
 
     function isValidOrder(data) {
       // App sends: customer_name, phone, address, delivery_location, delivery_charge, total_amount, user_id (opt), items, status, created_at, updated_at
-      return data.keys().hasAll(['customer_name', 'phone', 'address', 'items', 'total_amount', 'status', 'created_at', 'updated_at', 'delivery_location', 'delivery_charge']) &&
+      let required = ['customer_name', 'phone', 'address', 'items', 'total_amount', 'status', 'created_at', 'updated_at', 'delivery_location', 'delivery_charge'];
+      return data.keys().hasAll(required) &&
              data.customer_name is string && data.customer_name.size() > 0 && data.customer_name.size() <= 200 &&
-             data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30 &&
+             data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 20 &&
              data.address is string && data.address.size() > 0 && data.address.size() <= 1000 &&
-             data.items is list && data.items.size() > 0 && data.items.size() <= 100 &&
+             data.items is list && data.items.size() > 0 && data.items.size() <= 50 &&
              data.total_amount is number && data.total_amount >= 0 &&
              data.status in ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] &&
              data.created_at == request.time &&
@@ -74,11 +82,12 @@ service cloud.firestore {
     }
 
     function isValidProfile(data) {
-      return data.keys().hasAll(['email', 'displayName', 'created_at']) &&
+      let required = ['email', 'displayName', 'created_at'];
+      return data.keys().hasAll(required) &&
              data.email is string && data.email.size() <= 255 &&
              data.displayName is string && data.displayName.size() <= 100 &&
-             (!data.keys().contains('phone') || (data.phone is string && data.phone.size() <= 30)) &&
-             (!data.keys().contains('address') || (data.address is string && data.address.size() <= 1000)) &&
+             (!data.keys().contains('phone') || (data.phone is string && data.phone.size() <= 20)) &&
+             (!data.keys().contains('address') || (data.address is string && data.address.size() <= 500)) &&
              (!data.keys().contains('default_delivery_location') || data.default_delivery_location in ['inside', 'outside']);
     }
 
@@ -89,7 +98,7 @@ service cloud.firestore {
     // Products
     match /products/{productId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidProduct(incoming());
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
       allow delete: if isAdmin();
       allow update: if (
         (isAdmin() && isValidProduct(incoming())) ||
@@ -104,19 +113,17 @@ service cloud.firestore {
 
     // Orders
     match /orders/{orderId} {
-      // Admins and owners can read
       allow get: if isAdmin() || (isSignedIn() && existing().user_id == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.user_id == request.auth.uid);
       
-      // Anyone can create (guest checkout) but must be pending
-      allow create: if isValidOrder(incoming()) && incoming().status == 'pending';
+      allow create: if isValidId(orderId) && isValidOrder(incoming()) && incoming().status == 'pending';
       
       allow update: if isAdmin() && (
         // Action: Status update
         (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at']) && 
          incoming().status in ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] &&
          incoming().updated_at == request.time) ||
-        // Action: Full update (for admin editing)
+        // Action: Full update
         isValidOrder(incoming())
       );
       
@@ -128,10 +135,10 @@ service cloud.firestore {
       allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isSignedIn() && request.auth.uid == userId && isValidProfile(incoming());
       allow update: if isSignedIn() && request.auth.uid == userId && 
-                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phone', 'address', 'default_delivery_location', 'updated_at']) &&
+                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phone', 'address', 'default_delivery_location']) &&
                      (!incoming().keys().contains('displayName') || incoming().displayName is string) &&
-                     (!incoming().keys().contains('phone') || (incoming().phone is string && incoming().phone.size() <= 30)) &&
-                     (!incoming().keys().contains('address') || (incoming().address is string && incoming().address.size() <= 1000)) &&
+                     (!incoming().keys().contains('phone') || incoming().phone is string) &&
+                     (!incoming().keys().contains('address') || incoming().address is string) &&
                      (!incoming().keys().contains('default_delivery_location') || incoming().default_delivery_location in ['inside', 'outside']);
     }
 

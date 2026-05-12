@@ -202,14 +202,7 @@ export default function App() {
     video_url: '',
     display_order: '0',
     images: [''],
-    inventory: [
-      { size: 'S', quantity: 0 },
-      { size: 'M', quantity: 0 },
-      { size: 'L', quantity: 0 },
-      { size: 'XL', quantity: 0 },
-      { size: 'Unstitched', quantity: 0 },
-      { size: 'Freesize', quantity: 0 },
-    ]
+    inventory: []
   });
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -1311,14 +1304,7 @@ export default function App() {
           video_url: '',
           display_order: '0',
           images: [''],
-          inventory: [
-            { size: 'S', quantity: 0 },
-            { size: 'M', quantity: 0 },
-            { size: 'L', quantity: 0 },
-            { size: 'XL', quantity: 0 },
-            { size: 'Unstitched', quantity: 0 },
-            { size: 'Freesize', quantity: 0 },
-          ]
+          inventory: []
         });
       }, 1500);
 
@@ -1582,14 +1568,7 @@ export default function App() {
                       video_url: '',
                       display_order: '0',
                       images: [''],
-                      inventory: [
-                        { size: 'S', quantity: 0 },
-                        { size: 'M', quantity: 0 },
-                        { size: 'L', quantity: 0 },
-                        { size: 'XL', quantity: 0 },
-                        { size: 'Unstitched', quantity: 0 },
-                        { size: 'Freesize', quantity: 0 },
-                      ]
+                      inventory: []
                     });
                     setIsAddingItem(true);
                   }}

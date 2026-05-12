@@ -27,14 +27,7 @@ export function ProductForm({ item, onSave, onClose, suggestedCode }: ProductFor
     image: '',
     product_code: '',
     display_order: 0,
-    inventory: [
-      { size: 'S', quantity: 10 },
-      { size: 'M', quantity: 10 },
-      { size: 'L', quantity: 10 },
-      { size: 'XL', quantity: 10 },
-      { size: 'Unstitched', quantity: 10 },
-      { size: 'Freesize', quantity: 10 },
-    ]
+    inventory: []
   });
 
   useEffect(() => {
@@ -60,14 +53,7 @@ export function ProductForm({ item, onSave, onClose, suggestedCode }: ProductFor
         image: '',
         product_code: suggestedCode || '',
         display_order: 0,
-        inventory: [
-          { size: 'S', quantity: 10 },
-          { size: 'M', quantity: 10 },
-          { size: 'L', quantity: 10 },
-          { size: 'XL', quantity: 10 },
-          { size: 'Unstitched', quantity: 10 },
-          { size: 'Freesize', quantity: 10 },
-        ]
+        inventory: []
       });
     }
   }, [item, suggestedCode]);
@@ -95,7 +81,7 @@ export function ProductForm({ item, onSave, onClose, suggestedCode }: ProductFor
     if (formData.inventory.some(inv => inv.size === size)) return;
     setFormData({
       ...formData,
-      inventory: [...formData.inventory, { size, quantity: 10 }]
+      inventory: [...formData.inventory, { size, quantity: 0 }]
     });
   };
 
