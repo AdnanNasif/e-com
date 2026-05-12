@@ -59,17 +59,19 @@ router.post('/meta-event', async (req, res) => {
     const { eventName, userData, customData, eventSourceUrl, eventId, testEventCode } = req.body;
     
     if (!eventName) {
-      console.warn('[API] Missing eventName');
+      console.warn('[API] Missing eventName in request body');
       return res.status(400).json({ error: 'Missing eventName' });
     }
 
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
     const enrichedUserData = {
-      ...userData,
+      ...(userData || {}),
       client_user_agent: req.headers['user-agent'],
-      client_ip_address: req.ip,
+      client_ip_address: typeof clientIp === 'string' ? clientIp : (Array.isArray(clientIp) ? clientIp[0] : String(clientIp || '')),
     };
 
-    console.log('[API] Sending event to Meta:', eventName, { eventId, testEventCode });
+    console.log('[API] Processing event:', eventName, { eventId, hasPixel: !!(process.env.META_PIXEL_ID || process.env.VITE_META_PIXEL_ID) });
     
     const result: any = await meta.sendEvent({ 
       eventName, 
@@ -81,12 +83,14 @@ router.post('/meta-event', async (req, res) => {
     });
 
     if (result && result.success === false) {
-      console.error('[API] Meta CAPI failed:', result.error);
-      return res.status(400).json({ success: false, error: result.error });
+      console.error('[API] Meta CAPI reported failure:', result.error);
+      // Return 200 but success: false if it's a known error from Meta or if configuration is missing
+      // This prevents the proxy itself from being a "failure" source if the integration is just disabled
+      return res.json({ success: false, error: result.error, details: result.details });
     }
 
-    console.log('[API] Meta event sent successfully');
-    res.json({ success: true, result });
+    console.log('[API] Meta event process completed successfully');
+    res.json({ success: true, result: result.result });
   } catch (error: any) {
     console.error('[API] Meta event exception:', error);
     res.status(500).json({ 

@@ -571,7 +571,13 @@ export default function App() {
       });
 
       if (!response.ok) {
-        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`);
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = await response.text();
+        }
+        logger.warn(`[Meta] Server-side event failed with status: ${response.status}`, errorData);
       } else {
         const result = await response.json();
         logger.info(`[Meta] Server-side event result:`, result);

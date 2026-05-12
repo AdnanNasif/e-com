@@ -55,6 +55,14 @@ export class MetaAdapter {
 
     try {
       const url = `https://graph.facebook.com/v13.0/${this.pixelId}/events?access_token=${this.accessToken}`;
+      
+      // Node 18+ has global fetch. For older environments, this might fail.
+      if (typeof fetch === 'undefined') {
+        throw new Error('Global fetch is not defined in this Node environment. Please use a newer Node version (18+) or install a fetch polyfill.');
+      }
+
+      console.log(`[Meta] Fetching URL: ${url.replace(this.accessToken as string, 'REDACTED')}`);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,8 +75,8 @@ export class MetaAdapter {
       try {
         result = JSON.parse(responseText);
       } catch (e) {
-        console.error(`[Meta] Non-JSON response: ${responseText.substring(0, 500)}`);
-        throw new Error(`Invalid JSON response from Meta: ${responseText.substring(0, 100)}`);
+        console.error(`[Meta] Non-JSON response (first 500 chars): ${responseText.substring(0, 500)}`);
+        return { success: false, error: 'Meta API returned non-JSON response', details: responseText.substring(0, 200) };
       }
 
       if (!response.ok || result.error) {
@@ -77,9 +85,9 @@ export class MetaAdapter {
       }
 
       return { success: true, result };
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[Meta] Error sending event "${data.eventName}":`, error);
-      throw error;
+      return { success: false, error: 'Exception while sending event', details: error.message };
     }
   }
 }
