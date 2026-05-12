@@ -399,7 +399,7 @@ export function AdminDashboard({
                             <td className="p-6">
                               <div className="flex items-center gap-4">
                                 <div className="h-14 w-12 rounded-xl overflow-hidden bg-neutral-100">
-                                  <img src={product.image} className="w-full h-full object-cover" />
+                                  <img src={product.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 </div>
                                 <div>
                                   <div className="font-bold text-neutral-900 dark:text-white group-hover:text-amber-600 transition-colors">{product.name}</div>
@@ -501,7 +501,7 @@ export function AdminDashboard({
                 .map((product) => (
                 <Card key={product.id} className="rounded-3xl overflow-hidden border-neutral-100 dark:border-neutral-800 shadow-sm group bg-white dark:bg-neutral-900">
                   <div className="relative aspect-[4/3]">
-                    <img src={product.image} className="w-full h-full object-cover" />
+                    <img src={product.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     <div className="absolute top-4 left-4">
                       <input 
                         type="checkbox"
@@ -608,7 +608,7 @@ export function AdminDashboard({
                                <div className="flex -space-x-2">
                                  {order.items?.slice(0, 3).map((item, idx) => (
                                    <div key={idx} className="h-10 w-10 rounded-xl overflow-hidden border-2 border-white dark:border-neutral-900 bg-neutral-100">
-                                     <img src={item.image} className="w-full h-full object-cover" />
+                                     <img src={item.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                    </div>
                                  ))}
                                  {(order.items?.length || 0) > 3 && (
@@ -714,7 +714,7 @@ export function AdminDashboard({
                           : 'border-transparent opacity-50 grayscale hover:opacity-100 hover:grayscale-0'
                       }`}
                     >
-                      <img src={item.image} className="w-full h-full object-cover" />
+                      <img src={item.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       {(homepageSettings?.highlight_product_ids || []).includes(item.id) && (
                         <div className="absolute top-2 right-2 bg-amber-500 rounded-full p-1 shadow-lg border-2 border-white">
                           <Star className="w-3 h-3 text-white fill-current" />

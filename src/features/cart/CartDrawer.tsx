@@ -65,7 +65,7 @@ export function CartDrawer({ isOpen, onClose, cart, onUpdateQuantity, onRemove, 
                   {cart.map((item) => (
                     <div key={`${item.id}-${item.selectedSize}`} className="group flex gap-4 bg-white dark:bg-neutral-900 rounded-xl">
                       <div className="w-24 h-32 rounded-xl overflow-hidden bg-neutral-100 flex-shrink-0">
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       </div>
                       <div className="flex-1 flex flex-col justify-between py-1">
                         <div>

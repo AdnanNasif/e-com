@@ -7,31 +7,30 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import apiRouter from './server/routes/api';
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
 
-  // Trust proxy for accurate client IP (behind Nginx/Cloud Run)
-  app.set('trust proxy', true);
+// Trust proxy for accurate client IP (behind Nginx/Cloud Run/Vercel)
+app.set('trust proxy', true);
 
-  // Middleware
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Middleware
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // API Routes
-  app.use('/api', apiRouter);
+// API Routes
+app.use('/api', apiRouter);
 
-  // Generic error handler for JSON requests
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.path.startsWith('/api')) {
-      console.error('API Error:', err);
-      return res.status(500).json({ error: 'Internal Server Error', details: err.message });
-    }
-    next(err);
-  });
+// Generic error handler for JSON requests
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path.startsWith('/api')) {
+    console.error('API Error:', err);
+    return res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+  next(err);
+});
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+// Setup logic (Vite or Static)
+async function setupServer() {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -45,11 +44,19 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+}
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`[Server] Running on http://0.0.0.0:${PORT}`);
+// Start listener for traditional environments (AI Studio, etc.)
+if (!process.env.VERCEL) {
+  setupServer().then(() => {
+    const PORT = parseInt(process.env.PORT || '3000', 10);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`[Server] Running on http://0.0.0.0:${PORT}`);
+    });
   });
 }
 
-startServer();
+// Export for Vercel
+setupServer();
+export default app;

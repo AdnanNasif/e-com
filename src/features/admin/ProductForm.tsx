@@ -267,7 +267,7 @@ export function ProductForm({ item, onSave, onClose, suggestedCode }: ProductFor
                 </div>
                 {formData.image && (
                   <div className="aspect-video rounded-[2rem] overflow-hidden border border-neutral-200 dark:border-neutral-700">
-                    <img src={formData.image} className="w-full h-full object-cover" />
+                    <img src={formData.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   </div>
                 )}
               </div>

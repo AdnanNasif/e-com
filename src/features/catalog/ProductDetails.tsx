@@ -77,6 +77,7 @@ export function ProductDetails({
             src={currentImage} 
             alt={item.name} 
             className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
           />
           
           {/* Navigation Arrows */}
@@ -109,7 +110,7 @@ export function ProductDetails({
                   activeImageIdx === idx ? 'border-[#c2185b]' : 'border-transparent'
                 }`}
               >
-                <img src={img} className="w-full h-full object-cover" alt={`Thumbnail ${idx + 1}`} />
+                <img src={img} className="w-full h-full object-cover" alt={`Thumbnail ${idx + 1}`} referrerPolicy="no-referrer" />
               </button>
             ))}
           </div>
