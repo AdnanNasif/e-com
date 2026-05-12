@@ -54,13 +54,23 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 // Meta Events
 router.post('/meta-event', async (req, res) => {
+  console.log('[API] Received meta-event request:', req.body.eventName);
   try {
     const { eventName, userData, customData, eventSourceUrl, eventId, testEventCode } = req.body;
+    
+    if (!eventName) {
+      console.warn('[API] Missing eventName');
+      return res.status(400).json({ error: 'Missing eventName' });
+    }
+
     const enrichedUserData = {
       ...userData,
       client_user_agent: req.headers['user-agent'],
       client_ip_address: req.ip,
     };
+
+    console.log('[API] Sending event to Meta:', eventName, { eventId, testEventCode });
+    
     const result: any = await meta.sendEvent({ 
       eventName, 
       userData: enrichedUserData, 
@@ -71,12 +81,19 @@ router.post('/meta-event', async (req, res) => {
     });
 
     if (result && result.success === false) {
+      console.error('[API] Meta CAPI failed:', result.error);
       return res.status(400).json({ success: false, error: result.error });
     }
 
+    console.log('[API] Meta event sent successfully');
     res.json({ success: true, result });
   } catch (error: any) {
-    res.status(500).json({ error: 'Meta event failed', details: error.message });
+    console.error('[API] Meta event exception:', error);
+    res.status(500).json({ 
+      error: 'Meta event exception', 
+      details: error?.message || String(error),
+      stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+    });
   }
 });
 
